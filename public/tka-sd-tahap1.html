@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kota Matematika — Soal Latihan Bermodel TKA SD (Offline)</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --surface-2: #f1f5f9;
+    --border: #cbd5e1;
+    --text: #0f172a;
+    --muted: #475569;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --ok: #059669;
+    --warn: #d97706;
+  }
+  html.dark {
+    --bg: #0b1120;
+    --surface: #131c31;
+    --surface-2: #1e293b;
+    --border: #334155;
+    --text: #f1f5f9;
+    --muted: #cbd5e1;
+    --accent: #3b82f6;
+    --accent-dark: #2563eb;
+    --ok: #10b981;
+    --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overscroll-behavior: none;
+    line-height: 1.5;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .touch-stage { touch-action: none; user-select: none; -webkit-user-select: none; }
+  header {
+    position: sticky; top: 0; z-index: 30;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 0 20px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .brand { font-size: 20px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+  nav { display: flex; gap: 18px; align-items: center; }
+  nav button {
+    background: none; border: none; color: var(--muted); font-weight: 700;
+    font-size: 14px; cursor: pointer; padding: 8px 4px; white-space: nowrap;
+  }
+  nav button.active { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; }
+  .btn {
+    min-height: 48px; padding: 10px 16px; border-radius: 12px; border: 2px solid var(--border);
+    background: var(--surface); color: var(--text); font-weight: 700; font-size: 14px;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn-lg { min-height: 64px; padding: 12px 20px; font-size: 16px; }
+  .btn-primary { background: var(--accent); border-color: var(--accent-dark); color: #fff; }
+  .btn-ok { background: var(--ok); border-color: #047857; color: #fff; }
+  .btn-warn { background: var(--warn); border-color: #b45309; color: #fff; }
+  .strip {
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
+    padding: 8px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+    font-size: 13px;
+  }
+  .container { max-width: 1180px; margin: 0 auto; padding: 20px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px;
+  }
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .stepper { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
+  .mimo-box { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .mimo-bubble {
+    flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px 16px;
+  }
+  .overlay {
+    position: fixed; inset: 0; z-index: 60; background: rgba(15,23,42,0.88);
+    display: flex; align-items: center; justify-content: center; padding: 24px; color: #fff; text-align: center;
+  }
+  .drawer-backdrop {
+    position: fixed; inset: 0; z-index: 50; background: rgba(15,23,42,0.55); display: flex; justify-content: flex-end;
+  }
+  .drawer {
+    width: 100%; max-width: 520px; height: 100%; overflow-y: auto; background: var(--surface);
+    padding: 20px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 14px;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid var(--border); padding: 10px; text-align: center; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand" onclick="app.goMap()">Kota Matematika</div>
+  <nav>
+    <button id="nav-map" class="active" onclick="app.goMap()">Peta Soal</button>
+    <button id="nav-buku" onclick="app.goBuku()">Buku Saku</button>
+    <button onclick="app.toggleTheme()">Tema Terang/Gelap</button>
+  </nav>
+  <button class="btn btn-primary" onclick="app.toggleTeacher(true)">Mode Guru</button>
+</header>
+
+<div class="strip">
+  <div>
+    <strong>Soal Latihan Bermodel TKA</strong> · Bukan tes ujian · Bintang Bersama: <strong class="mono" id="bintang-txt">★ 0</strong> · Stiker: <strong class="mono" id="stiker-txt">0/25</strong>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn" id="btn-mute" onclick="app.toggleMute()">Suara Aktif (M)</button>
+    <button class="btn" onclick="app.toggleFullscreen()">Layar Penuh (F)</button>
+  </div>
+</div>
+
+<main id="app-root" class="container"></main>
+<div id="teacher-root"></div>
+<div id="freeze-root"></div>
+
+<script>
+// ==================== 1. DATA JSON TERVERIFIKASI (25 SOAL + MATERI) ====================
+const TKA_DATA = {
+  labelResmi: "Soal Latihan Bermodel TKA",
+  materi: [
+    { judul: "1. Bilangan", isi: ["Pecahan senilai: 1/2 = 2/4 = 3/6.", "Pecahan, desimal, persen: 3/4 = 0,75 = 75%.", "KPK untuk bertemu lagi; FPB untuk dibagi sama rata sebanyak mungkin.", "Diskon: bayar = (100% − diskon) × harga awal."] },
+    { judul: "2. Geometri", isi: ["Persegi K = 4×s, L = s×s; Persegi panjang K = 2×(p+l), L = p×l.", "Jumlah sudut segitiga = 180°; segiempat = 360°; sudut lurus = 180°.", "Volume kubus = s×s×s; balok = p×l×t."] },
+    { judul: "3. Pengukuran", isi: ["Tangga berat: kg – hg – dag – g – dg – cg – mg (turun × 10, naik ÷ 10).", "1 jam = 60 menit; 2,5 jam = 2 jam 30 menit.", "Kecepatan = jarak ÷ waktu."] },
+    { judul: "4. Data", isi: ["Piktogram: selalu baca nilai satu simbol.", "Rata-rata = jumlah seluruh data ÷ banyak data."] },
+    { judul: "5. Strategi Soal Cerita", isi: ["Tulis diketahui & ditanya.", "Samakan satuan sebelum menghitung.", "Untuk PGK & Benar/Salah, cek tiap pernyataan satu per satu."] }
+  ],
+  soal: [
+    { id: 1, nama: "Mesin Tiga Bentuk", elemen: "Bilangan", bentuk: "PG", teks: "150% − 2 + 3 × 0,25 + 1/2 = …", opsi: [{id:"A",label:"1/4"},{id:"B",label:"1/2"},{id:"C",label:"3/4"},{id:"D",label:"5/4"}], kunci: "C", langkah: ["150% = 1,5 dan 1/2 = 0,5.", "3 × 0,25 = 0,75.", "1,5 − 2 + 0,75 + 0,5 = 0,75 = 3/4."], petunjuk: ["Kerjakan perkalian lebih dulu.", "Ubah semua ke desimal.", "1,5 − 2 + 0,75 + 0,5."] },
+    { id: 2, nama: "Toko Mentari", elemen: "Bilangan", bentuk: "PG", teks: "Toko Alat Tulis Mentari memberi diskon 20% untuk semua barang. Harga buku gambar adalah 1/2 dari harga buku komik, dan harga buku tulis adalah 0,75 kali harga buku komik. Harga buku komik Rp20.000,00. Berapa yang harus dibayar untuk satu buku gambar dan satu buku tulis setelah diskon?", opsi: [{id:"A",label:"Rp15.000,00"},{id:"B",label:"Rp20.000,00"},{id:"C",label:"Rp22.500,00"},{id:"D",label:"Rp25.000,00"}], kunci: "B", langkah: ["Gambar = Rp10.000,00; Tulis = Rp15.000,00.", "Jumlah = Rp25.000,00.", "Diskon 20%: 0,8 × 25.000 = Rp20.000,00."], petunjuk: ["Cari harga masing-masing buku.", "Jumlahkan sebelum didiskon.", "Kalikan 80% dengan 25.000."] },
+    { id: 3, nama: "Dapur Jus", elemen: "Bilangan", bentuk: "PGK_KATEGORI", teks: "Bu Sari membuat jus buah sebanyak 6 wadah, masing-masing berisi 2 1/2 liter. Seluruh jus dituang ke 25 botol besar dengan isi sama banyak dan ke 10 botol kecil. Isi setiap botol kecil adalah setengah isi botol besar. Tentukan Benar atau Salah untuk tiap pernyataan.", pernyataan: [{id:"A",teks:"Jus yang dibuat Bu Sari seluruhnya 15 liter.",kunci:true},{id:"B",teks:"Setiap botol besar berisi 1/2 liter.",kunci:true},{id:"C",teks:"Jus yang dikemas dalam botol kecil seluruhnya 5 liter.",kunci:false}], kunci: {A:true,B:true,C:false}, langkah: ["Total = 6 × 2,5 = 15 liter.", "25x + 10(x/2) = 30x = 15 → x = 1/2 liter.", "Botol kecil = 10 × 1/4 = 2,5 liter (bukan 5)."], petunjuk: ["Hitung 6 × 2,5.", "10 botol kecil setara 5 botol besar.", "Cek isi botol kecil = 1/4 liter."] },
+    { id: 4, nama: "Petak Kebun", elemen: "Bilangan", bentuk: "PG", teks: "Pak Darto memiliki lahan seluas 4,8 hektar. Sebanyak 1/4 bagian ditanami jagung, 1/3 bagian ditanami kedelai, dan sisanya ditanami singkong. Berapa luas lahan yang ditanami kedelai dan singkong?", opsi: [{id:"A",label:"2,0 hektar"},{id:"B",label:"2,8 hektar"},{id:"C",label:"3,6 hektar"},{id:"D",label:"4,0 hektar"}], kunci: "C", langkah: ["Jagung = 1,2 ha; Kedelai = 1,6 ha.", "Singkong = 4,8 − 1,2 − 1,6 = 2,0 ha.", "Kedelai + Singkong = 3,6 ha."], petunjuk: ["Hitung bagian jagung.", "Kurangkan dari 4,8 ha.", "1,6 + 2,0 = 3,6 ha."] },
+    { id: 5, nama: "Kalender Renang", elemen: "Bilangan", bentuk: "PG", teks: "Tiga sahabat berlatih renang di kolam yang sama. Ardi berlatih setiap 4 hari sekali, Bayu setiap 6 hari sekali, dan Candra setiap 8 hari sekali. Hari ini mereka berlatih bersama. Setiap berapa hari mereka akan berlatih bersama lagi?", opsi: [{id:"A",label:"12 hari"},{id:"B",label:"18 hari"},{id:"C",label:"24 hari"},{id:"D",label:"48 hari"}], kunci: "C", langkah: ["4 = 2², 6 = 2×3, 8 = 2³.", "KPK = 2³ × 3 = 24 hari."], petunjuk: ["Cari KPK dari 4, 6, 8.", "Cek kelipatan 8.", "24 habis dibagi 4, 6, dan 8."] },
+    { id: 6, nama: "Gunting Kawat", elemen: "Bilangan", bentuk: "PG", teks: "Ibu mempunyai kawat sepanjang 250 cm. Kawat itu dipotong-potong untuk gantungan tanaman, masing-masing 18 cm, sebanyak mungkin. Berapa cm sisa kawat yang tidak terpakai?", opsi: [{id:"A",label:"14 cm"},{id:"B",label:"15 cm"},{id:"C",label:"16 cm"},{id:"D",label:"17 cm"}], kunci: "C", langkah: ["250 ÷ 18 = 13 sisa.", "13 × 18 = 234 cm.", "Sisa = 250 − 234 = 16 cm."], petunjuk: ["Bagi 250 dengan 18.", "13 × 18 = 234.", "250 − 234 = 16."] },
+    { id: 7, nama: "Gudang Buku", elemen: "Bilangan", bentuk: "PG", teks: "Perpustakaan SD Cahaya mengadakan lomba membaca. Pesertanya 26 siswa dari Kelas A, 34 siswa dari Kelas B, dan 40 siswa dari Kelas C. Setiap siswa mendapat 3 buku bacaan. Jika 1 dus berisi 25 buku, berapa dus yang dibutuhkan?", opsi: [{id:"A",label:"10 dus"},{id:"B",label:"12 dus"},{id:"C",label:"13 dus"},{id:"D",label:"15 dus"}], kunci: "B", langkah: ["Total siswa = 26 + 34 + 40 = 100.", "Total buku = 100 × 3 = 300.", "300 ÷ 25 = 12 dus."], petunjuk: ["Jumlahkan semua siswa.", "Kalikan 3 buku.", "Bagi 25 buku per dus."] },
+    {
+      id: 8, nama: "Timbangan Sembako", elemen: "Pengukuran", bentuk: "PGK",
+      cerita: "Paket sembako baru tiba! Label beratnya campur antara kg, hg, dan g. Ayo seimbangkan timbangannya!",
+      temukan: "Mengapa 480 g tidak bisa dibilang lebih dari 0,5 kg?",
+      teks: "Sebuah paket sembako berisi 2 kg beras, 3 bungkus gula pasir dengan berat masing-masing 4 hg, dan 6 bungkus mi instan dengan berat masing-masing 80 g. Pilih semua pernyataan yang benar (jawaban benar lebih dari satu).",
+      opsi: [
+        { id: "a", label: "Berat seluruh isi paket adalah 3.680 gram." },
+        { id: "b", label: "Berat seluruh mi instan lebih dari 0,5 kilogram.", salah: "6 × 80 g = 480 g = 0,48 kg. Itu kurang dari 0,5 kg (500 g)!" },
+        { id: "c", label: "Berat seluruh gula pasir lebih besar daripada berat seluruh mi instan." }
+      ],
+      kunci: ["a", "c"],
+      langkah: [
+        "Samakan ke gram: Beras 2 kg = 2.000 g, Gula 3 × 4 hg = 3 × 400 g = 1.200 g, Mi 6 × 80 g = 480 g.",
+        "Total paket = 2.000 + 1.200 + 480 = 3.680 gram (a benar).",
+        "Mi instan 480 g = 0,48 kg, kurang dari 0,5 kg (b salah). Gula 1.200 g > Mi 480 g (c benar)."
+      ],
+      petunjuk: ["Samakan semua satuan ke gram (1 hg = 100 g).", "0,5 kg = 500 gram.", "Hitung masing-masing: beras 2.000 g, gula 1.200 g, mi 480 g."],
+      kartuGuru: {
+        pemantik: "Mengapa 480 g tidak bisa dibilang lebih dari 0,5 kg?",
+        waspada: "Lupa mengubah hg ke g (4 hg = 400 g); lupa mengalikan banyak bungkus.",
+        berhenti: "Hentikan kelas setelah gula naik ke piring kiri, minta siswa menebak berat penyeimbangnya.",
+        mariSalah: "Mimo mengira 480 > 0,5 berarti mi lebih berat dari 0,5 kg. Padahal satuannya berbeda (g vs kg)!"
+      }
+    },
+    { id: 9, nama: "Peta Perjalanan", elemen: "Pengukuran", bentuk: "PG", teks: "Bu Rina berkendara dari rumah ke rumah neneknya yang berjarak 150 km dengan kecepatan rata-rata 60 km/jam. Ia berangkat pukul 07.30 dan berhenti 30 menit di tengah jalan untuk beristirahat. Pukul berapa Bu Rina tiba?", opsi: [{id:"A",label:"10.00"},{id:"B",label:"10.30"},{id:"C",label:"11.00"},{id:"D",label:"11.30"}], kunci: "B", langkah: ["150 ÷ 60 = 2,5 jam = 2 jam 30 menit.", "Tambah istirahat 30 menit = 3 jam.", "07.30 + 3 jam = 10.30."], petunjuk: ["Waktu = jarak ÷ kecepatan.", "2,5 jam = 2 jam 30 menit.", "Tambahkan 3 jam ke 07.30."] },
+    { id: 10, nama: "Jam Dimas", elemen: "Pengukuran", bentuk: "PG", teks: "Dimas berangkat dari rumah pukul 06.50. Perjalanan ke lapangan memerlukan 40 menit. Latihan sepak bola berlangsung 1 jam 45 menit. Setelah itu Dimas beristirahat 25 menit sebelum pulang. Pukul berapa Dimas meninggalkan lapangan?", opsi: [{id:"A",label:"09.30"},{id:"B",label:"09.40"},{id:"C",label:"09.50"},{id:"D",label:"10.00"}], kunci: "B", langkah: ["06.50 + 40 menit = 07.30.", "07.30 + 1 jam 45 menit = 09.15.", "09.15 + 25 menit = 09.40."], petunjuk: ["Tambahkan bertahap.", "06.50 + 40 m = 07.30.", "09.15 + 25 m = 09.40."] },
+    { id: 11, nama: "Kotak Kubus Satuan", elemen: "Geometri", bentuk: "PGK", teks: "Ibu guru meminta Sinta membawa sebuah kotak yang dapat menampung tepat 72 kubus satuan (rusuk kubus satuan 1 cm). Kotak mana saja yang harus dibawa Sinta? (jawaban benar lebih dari satu)", opsi: [{id:"a",label:"Kotak berukuran 6 cm × 4 cm × 3 cm"},{id:"b",label:"Kotak berukuran 8 cm × 3 cm × 3 cm"},{id:"c",label:"Kotak berukuran 6 cm × 4 cm × 4 cm",salah:"6 × 4 × 4 = 96 kubus, berlebih!"}], kunci: ["a","b"], langkah: ["6×4×3 = 72 (benar).", "8×3×3 = 72 (benar).", "6×4×4 = 96 (salah)."], petunjuk: ["Volume = p × l × t.", "Cari hasil kali 72.", "Cek satu per satu."] },
+    { id: 12, nama: "Bongkar Pasang Bak", elemen: "Geometri", bentuk: "PG", teks: "Sebuah bak berbentuk kubus memiliki volume 27 m³. Bak itu diubah menjadi balok dengan panjang 2 kali rusuk bak semula, lebar 1/3 rusuk bak semula, dan tinggi sama dengan rusuk bak semula. Berapa volume bak yang baru?", opsi: [{id:"A",label:"9 m³"},{id:"B",label:"18 m³"},{id:"C",label:"27 m³"},{id:"D",label:"36 m³"}], kunci: "B", langkah: ["Rusuk = 3 m (3×3×3=27).", "Balok: 6 × 1 × 3 = 18 m³."], petunjuk: ["Cari rusuk kubus 27 m³.", "p=6, l=1, t=3.", "Kalikan p×l×t."] },
+    { id: 13, nama: "Detektif Bangun", elemen: "Geometri", bentuk: "PG", teks: "Sebuah bangun datar memiliki sifat: (1) mempunyai dua pasang sisi sejajar; (2) sisi-sisi yang berhadapan sama panjang, tetapi sisi yang berdekatan tidak sama panjang; (3) keempat sudutnya siku-siku. Apa nama bangun datar tersebut?", opsi: [{id:"A",label:"Persegi"},{id:"B",label:"Persegi panjang"},{id:"C",label:"Jajargenjang"},{id:"D",label:"Trapesium"}], kunci: "B", langkah: ["Dua pasang sejajar → bukan trapesium.", "Berdekatan tidak sama → bukan persegi.", "Empat sudut siku-siku → persegi panjang."], petunjuk: ["Coret bangun yang melanggar syarat.", "Persegi punya 4 sisi sama.", "Jawabannya persegi panjang."] },
+    { id: 14, nama: "Kantor Berita", elemen: "Data", bentuk: "PGK_KATEGORI", teks: "Tabel berikut menunjukkan banyak siswa yang berkunjung ke perpustakaan selama lima hari.", tabel: { headers:["Hari","Senin","Selasa","Rabu","Kamis","Jumat"], row:["Banyak pengunjung",30,45,25,45,35] }, pernyataan: [{id:"A",teks:"Pengunjung terbanyak terjadi pada hari Selasa dan Kamis.",kunci:true},{id:"B",teks:"Selisih pengunjung hari Selasa dan Rabu adalah 15 orang.",kunci:false},{id:"C",teks:"Rata-rata pengunjung per hari adalah 36 orang.",kunci:true}], kunci: {A:true,B:false,C:true}, langkah: ["Terbanyak 45 (Selasa, Kamis).", "Selisih 45 − 25 = 20 (bukan 15).", "Rata-rata 180 ÷ 5 = 36."], petunjuk: ["Baca nilai tertinggi.", "45 − 25 = 20.", "Jumlahkan semua lalu bagi 5."] },
+    { id: 15, nama: "Keranjang Buah", elemen: "Bilangan", bentuk: "PG", teks: "Ayah membeli 4 kg buah. Di dalam kantong terdapat 3 buah apel dengan berat seluruhnya 1,3 kg, dan sisanya adalah 9 buah jeruk. Berat satu buah jeruk adalah …", opsi: [{id:"A",label:"0,25 kg"},{id:"B",label:"0,3 kg"},{id:"C",label:"0,35 kg"},{id:"D",label:"0,4 kg"}], kunci: "B", langkah: ["Berat 9 jeruk = 4 − 1,3 = 2,7 kg.", "1 jeruk = 2,7 ÷ 9 = 0,3 kg."], petunjuk: ["Kurangkan 4 dengan 1,3.", "Hasilnya 2,7 kg untuk 9 jeruk.", "Bagi 2,7 dengan 9."] },
+    { id: 16, nama: "Lintasan Sepeda", elemen: "Bilangan", bentuk: "PG", teks: "Empat teman bersepeda dengan target 12 km. Ani telah menempuh 0,75 bagian dari target, Budi 50%, Cici 2/3 bagian, dan Dedi 7,5 km. Siapa yang telah menempuh 5/8 dari target?", opsi: [{id:"A",label:"Ani"},{id:"B",label:"Budi"},{id:"C",label:"Cici"},{id:"D",label:"Dedi"}], kunci: "D", langkah: ["5/8 × 12 = 7,5 km.", "Ani 9 km, Budi 6 km, Cici 8 km, Dedi 7,5 km."], petunjuk: ["Hitung 5/8 × 12.", "60 ÷ 8 = 7,5 km.", "Cocokkan dengan Dedi."] },
+    { id: 17, nama: "Tangki dan Ember", elemen: "Pengukuran", bentuk: "PGK_KATEGORI", teks: "Seorang petani memiliki tangki berisi air 1,2 hektoliter. Air itu akan dipindahkan memakai ember berkapasitas 15 liter. Tentukan Benar atau Salah untuk tiap pernyataan.", pernyataan: [{id:"A",teks:"Air di dalam tangki sebanyak 120 liter.",kunci:true},{id:"B",teks:"Air tersebut dapat mengisi 9 ember sampai penuh.",kunci:false},{id:"C",teks:"Setelah 5 ember penuh dipakai, sisa air 45 liter.",kunci:true}], kunci: {A:true,B:false,C:true}, langkah: ["1,2 hl = 120 liter.", "120 ÷ 15 = 8 ember (bukan 9).", "120 − 5×15 = 45 liter."], petunjuk: ["1 hl = 100 liter.", "120 ÷ 15 = 8.", "120 − 75 = 45."] },
+    { id: 18, nama: "Dadu Putar", elemen: "Geometri", bentuk: "PG", teks: "Sebuah dadu memiliki sisi dengan 1 sampai 6 titik, dan jumlah titik pada dua sisi yang berlawanan selalu sama. Pada dadu yang dilempar Rani, sisi atas memiliki 5 titik. Banyak titik pada sisi bawah adalah …", opsi: [{id:"A",label:"1"},{id:"B",label:"2"},{id:"C",label:"3"},{id:"D",label:"4"}], kunci: "B", langkah: ["Total titik 1..6 = 21.", "3 pasang berlawanan → tiap pasang = 7.", "Bawah = 7 − 5 = 2."], petunjuk: ["Jumlahkan 1+2+3+4+5+6.", "Bagi 3 pasang = 7.", "7 − 5 = 2."] },
+    { id: 19, nama: "Loyang Kue", elemen: "Bilangan", bentuk: "PG", teks: "Sebuah loyang kue dipotong menjadi 16 bagian sama besar. Sebanyak 6 potong berwarna cokelat, 4 potong berwarna kuning, dan sisanya berwarna stroberi. Berapa bagian kue yang berwarna cokelat atau kuning? (tulis dalam bentuk paling sederhana)", opsi: [{id:"A",label:"1/2"},{id:"B",label:"5/8"},{id:"C",label:"3/4"},{id:"D",label:"7/8"}], kunci: "B", langkah: ["Cokelat + kuning = 6 + 4 = 10.", "10/16 disederhanakan ÷2 = 5/8."], petunjuk: ["Jumlahkan 6 + 4.", "Tulis 10/16.", "Bagi pembilang & penyebut dengan 2."] },
+    {
+      id: 20, nama: "Tanah Pak Boni", elemen: "Geometri", bentuk: "PG",
+      cerita: "Pak Boni membuat kolam 5 m × 5 m di sudut tanah 20 m × 12 m! Apakah keliling tanahnya berkurang?",
+      temukan: "Mengapa mengambil persegi 5 m × 5 m dari sudut tidak mengubah panjang keliling tanah?",
+      teks: "Pak Boni memiliki tanah berbentuk persegi panjang berukuran 20 m × 12 m. Pada salah satu sudutnya, sebuah bagian berbentuk persegi 5 m × 5 m diambil untuk kolam sehingga tanah itu kini berbentuk huruf L. Berapa keliling tanah Pak Boni sekarang?",
+      opsi: [
+        { id: "A", label: "54 m", salah: "Hati-hati, sisi dalam lekukan L ikut menjadi pagar luar tanah!" },
+        { id: "B", label: "64 m" },
+        { id: "C", label: "74 m", salah: "Dua sisi luar yang terpotong persis diganti oleh dua sisi lekukan dalam." },
+        { id: "D", label: "84 m", salah: "Tidak perlu menambah keliling kolam penuh karena sisi luar tidak bertambah." }
+      ],
+      kunci: "B",
+      langkah: [
+        "Sisi mendatar atas: 15 m + sisi dalam 5 m = 20 m (sama dengan sisi bawah).",
+        "Sisi tegak kanan: 7 m + sisi dalam 5 m = 12 m (sama dengan sisi kiri).",
+        "Mengambil persegi dari sudut tidak mengubah keliling: tetap 2 × (20 + 12) = 64 m."
+      ],
+      petunjuk: ["Keliling adalah seluruh sisi luar huruf L.", "Geser dua dinding kolam ke garis putus-putus.", "2 × (20 + 12) = 64 m."],
+      kartuGuru: {
+        pemantik: "Luasnya berkurang, mengapa kelilingnya tetap sama?",
+        waspada: "Mengira keliling berkurang seperti luas; lupa menghitung dua sisi lekukan.",
+        berhenti: "Setelah dua garis digeser menutup persegi panjang semula, tanya kelas mengapa panjangnya sama.",
+        mariSalah: "Mimo mengira keliling berkurang 20 m karena kolamnya 5×5. Padahal dua dinding baru menggantikan yang hilang!"
+      }
+    },
+    { id: 21, nama: "Lahan Parkir", elemen: "Geometri", bentuk: "PGK_KATEGORI", teks: "Lahan parkir motor berbentuk persegi panjang berukuran 9 m × 4 m. Satu motor memerlukan lahan seluas 1,5 m². Tentukan Benar atau Salah untuk tiap pernyataan.", pernyataan: [{id:"A",teks:"Luas lahan parkir adalah 32 m².",kunci:false},{id:"B",teks:"Lahan itu dapat menampung 24 motor.",kunci:true},{id:"C",teks:"Jika 15 motor sudah parkir, lahan masih cukup untuk 9 motor lagi.",kunci:true}], kunci: {A:false,B:true,C:true}, langkah: ["Luas = 9×4 = 36 m².", "36 ÷ 1,5 = 24 motor.", "24 − 15 = 9 motor."], petunjuk: ["9 × 4 = 36.", "36 ÷ 1,5 = 24.", "24 − 15 = 9."] },
+    { id: 22, nama: "Pekan Literasi", elemen: "Data", bentuk: "PGK_KATEGORI", teks: "Piktogram berikut menunjukkan banyak buku yang dibaca tiga anak selama pekan literasi. Satu ■ mewakili 4 buku. Tentukan Benar atau Salah untuk tiap pernyataan.", piktogram: { ket:"Satu ■ mewakili 4 buku", rows:[{nama:"Rina",n:5},{nama:"Dika",n:3},{nama:"Siti",n:6}] }, pernyataan: [{id:"A",teks:"Rina membaca 20 buku.",kunci:true},{id:"B",teks:"Jumlah buku yang dibaca ketiga anak adalah 52 buku.",kunci:false},{id:"C",teks:"Siti membaca dua kali lebih banyak buku daripada Dika.",kunci:true}], kunci: {A:true,B:false,C:true}, langkah: ["Rina 20, Dika 12, Siti 24.", "Total = 56 buku (bukan 52).", "Siti 24 = 2 × 12."], petunjuk: ["1 kotak = 4 buku.", "Total kotak = 14 → 14×4 = 56.", "6 kotak = 2 × 3 kotak."] },
+    { id: 23, nama: "Buku Cerita", elemen: "Bilangan", bentuk: "PG", teks: "Sebuah buku cerita memiliki 200 halaman. Hari Senin Nia membaca 50 halaman. Hari Selasa ia membaca 1/3 dari sisa halaman. Berapa persen halaman buku yang sudah dibaca Nia?", opsi: [{id:"A",label:"25%"},{id:"B",label:"33%"},{id:"C",label:"50%"},{id:"D",label:"75%"}], kunci: "C", langkah: ["Sisa = 200 − 50 = 150 halaman.", "Selasa = 1/3 × 150 = 50.", "Total 100/200 = 50%."], petunjuk: ["Cari sisa setelah Senin.", "1/3 dari 150 = 50.", "100 dari 200 = 50%."] },
+    { id: 24, nama: "Packing Parsel", elemen: "Bilangan", bentuk: "PG", teks: "Bu Dewi memiliki 48 permen dan 36 cokelat. Semuanya dibagi ke dalam beberapa kantong dengan isi permen dan cokelat yang sama di tiap kantong, tanpa sisa. Bu Dewi ingin membuat kantong sebanyak mungkin. Berapa kantong yang dapat dibuat?", opsi: [{id:"A",label:"6"},{id:"B",label:"9"},{id:"C",label:"12"},{id:"D",label:"18"}], kunci: "C", langkah: ["48 = 2⁴×3, 36 = 2²×3².", "FPB(48, 36) = 12 kantong."], petunjuk: ["Cari FPB dari 48 dan 36.", "48 = 12×4; 36 = 12×3.", "Hasilnya 12."] },
+    {
+      id: 25, nama: "Sobek Sudut", elemen: "Geometri", bentuk: "PG",
+      cerita: "Segitiga kertas ini punya rahasia! Sobek tiga sudutnya dan jajarkan di garis lurus!",
+      temukan: "Mengapa ketiga sudut segitiga mana pun selalu pas membentuk garis lurus 180°?",
+      teks: "Pada segitiga ABC, besar sudut A = 50° dan besar sudut B dua kali besar sudut A. Berapa besar sudut C?",
+      opsi: [
+        { id: "A", label: "20°", salah: "180° − 150° = 30°, bukan 20°." },
+        { id: "B", label: "30°" },
+        { id: "C", label: "40°", salah: "Sudut B = 2 × 50° = 100°, bukan 90°." },
+        { id: "D", label: "80°", salah: "Sudut B dua kali sudut A (100°), bukan 50°." }
+      ],
+      kunci: "B",
+      langkah: [
+        "Sudut B = 2 × sudut A = 2 × 50° = 100°.",
+        "Ketiga sobekan sudut segitiga membentuk garis lurus = 180°.",
+        "Sudut C = 180° − 50° − 100° = 30°."
+      ],
+      petunjuk: ["Hitung sudut B = 2 × 50°.", "Jumlah sudut segitiga = 180°.", "180° − 50° − 100° = 30°."],
+      kartuGuru: {
+        pemantik: "Jika sudut segitiga diubah bentuknya, apakah sobekannya tetap pas 180°?",
+        waspada: "Lupa mengalikan 2 untuk sudut B; tertukar 180° dengan 360°.",
+        berhenti: "Setelah sudut A dan B diletakkan di penggaris, minta siswa menaksir sisa sudut C.",
+        mariSalah: "Mimo mengira jumlah sudut segitiga 360°! Ingat, tiga sudutnya membentuk garis lurus setengah lingkaran = 180°."
+      }
+    }
+  ]
+};
+
+// ==================== 2. MESIN SUARA WEB AUDIO API ====================
+const Sound = {
+  ctx: null, muted: false,
+  init() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) this.ctx = new AC();
+    }
+    if (this.ctx && this.ctx.state === "suspended") this.ctx.resume().catch(()=>{});
+  },
+  tone(freq, dur, type="sine", vol=0.14, delay=0) {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + delay;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  click() { this.tone(540, 0.07, "triangle", 0.1); },
+  pop() { this.tone(420, 0.08, "sine", 0.11); },
+  ding() { this.tone(880, 0.45, "sine", 0.15, 0); this.tone(1318, 0.55, "sine", 0.1, 0.05); },
+  softWrong() { this.tone(310, 0.16, "sine", 0.1, 0); this.tone(255, 0.24, "sine", 0.09, 0.11); },
+  tear() { this.tone(900, 0.05, "sawtooth", 0.05, 0); this.tone(620, 0.07, "triangle", 0.05, 0.04); },
+  clap() { this.tone(523,0.16,"triangle",0.12,0); this.tone(659,0.16,"triangle",0.12,0.08); this.tone(784,0.2,"triangle",0.12,0.16); this.tone(1046,0.4,"sine",0.14,0.24); }
+};
+
+function fmtID(n, d=2) {
+  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: d }).format(n);
+}
+
+// ==================== 3. MASKOT MIMO SVG ====================
+function renderMimoSVG(mood) {
+  const eyes = mood === "bingung"
+    ? `<circle cx="46" cy="60" r="6" fill="#fff"/><circle cx="47" cy="61" r="3" fill="#0f172a"/><circle cx="74" cy="57" r="7.5" fill="#fff"/><circle cx="73" cy="56" r="3.5" fill="#0f172a"/>`
+    : mood === "bersorak"
+    ? `<path d="M39 60 Q46 52 53 60" fill="none" stroke="#0f172a" stroke-width="3.5" stroke-linecap="round"/><path d="M67 60 Q74 52 81 60" fill="none" stroke="#0f172a" stroke-width="3.5" stroke-linecap="round"/>`
+    : `<circle cx="46" cy="59" r="6.5" fill="#fff"/><circle cx="47" cy="59" r="3.2" fill="#0f172a"/><circle cx="74" cy="59" r="6.5" fill="#fff"/><circle cx="75" cy="59" r="3.2" fill="#0f172a"/>`;
+  const mouth = mood === "kaget"
+    ? `<ellipse cx="60" cy="77" rx="5.5" ry="7" fill="#0f172a"/>`
+    : mood === "bingung"
+    ? `<path d="M51 77 Q56 73 61 77 T70 76" fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round"/>`
+    : mood === "bersorak"
+    ? `<path d="M48 73 Q60 88 72 73 Z" fill="#0f172a"/>`
+    : `<path d="M50 74 Q60 83 70 74" fill="none" stroke="#0f172a" stroke-width="3.2" stroke-linecap="round"/>`;
+  return `<svg width="78" height="78" viewBox="0 0 120 120" style="cursor:pointer;flex-shrink:0" onclick="app.tapMimo()">
+    <path d="M60 22 C60 12, 72 8, 76 14 C79 18, 69 24, 60 22 Z" fill="#10b981" stroke="#047857" stroke-width="2.5"/>
+    <line x1="60" y1="22" x2="60" y2="33" stroke="#047857" stroke-width="3.5" stroke-linecap="round"/>
+    <circle cx="60" cy="69" r="37" fill="#3b82f6" stroke="#1d4ed8" stroke-width="3.5"/>
+    <circle cx="37" cy="72" r="5" fill="#f472b6" opacity="0.65"/><circle cx="83" cy="72" r="5" fill="#f472b6" opacity="0.65"/>
+    ${eyes}${mouth}
+  </svg>`;
+}
+
+// ==================== 4. PENDAFTARAN WIDGET ====================
+const WIDGETS = {};
+
+// --- WIDGET 8: TIMBANGAN SEMBAKO ---
+WIDGETS[8] = {
+  state: {
+    left: ["beras1"],
+    right: [1000, 1000],
+    ladderGram: 400,
+    ladderLabel: "Gula (4 hg)",
+    wow: false
+  },
+  items: [
+    { id: "beras1", nama: "Beras", label: "2 kg", gram: 2000, warna: "#0284c7" },
+    { id: "gula1", nama: "Gula 1", label: "4 hg", gram: 400, warna: "#d97706" },
+    { id: "gula2", nama: "Gula 2", label: "4 hg", gram: 400, warna: "#d97706" },
+    { id: "gula3", nama: "Gula 3", label: "4 hg", gram: 400, warna: "#d97706" },
+    { id: "mi1", nama: "Mi 1", label: "80 g", gram: 80, warna: "#059669" },
+    { id: "mi2", nama: "Mi 2", label: "80 g", gram: 80, warna: "#059669" },
+    { id: "mi3", nama: "Mi 3", label: "80 g", gram: 80, warna: "#059669" },
+    { id: "mi4", nama: "Mi 4", label: "80 g", gram: 80, warna: "#059669" },
+    { id: "mi5", nama: "Mi 5", label: "80 g", gram: 80, warna: "#059669" },
+    { id: "mi6", nama: "Mi 6", label: "80 g", gram: 80, warna: "#059669" }
+  ],
+  toggleLeft(id) {
+    Sound.click();
+    const s = this.state;
+    const it = this.items.find(x => x.id === id);
+    if (s.left.includes(id)) s.left = s.left.filter(x => x !== id);
+    else s.left.push(id);
+    if (it) { s.ladderGram = it.gram; s.ladderLabel = `${it.nama} (${it.label})`; }
+    this.check(); app.render();
+  },
+  addRight(g) { Sound.click(); this.state.right.push(g); this.check(); app.render(); },
+  removeRight(idx) { Sound.pop(); this.state.right.splice(idx, 1); this.state.wow = false; app.render(); },
+  loadAll() { Sound.pop(); this.state.left = this.items.map(x=>x.id); this.check(); app.render(); },
+  reset() { Sound.pop(); this.state.left = []; this.state.right = []; this.state.wow = false; app.render(); },
+  check() {
+    const l = this.leftSum(), r = this.rightSum();
+    if (l > 0 && l === r) {
+      Sound.ding();
+      if (this.state.left.length === 10 && r === 3680) {
+        this.state.wow = true;
+        app.setMimo("kaget", "TING! Tepat 3.680 gram! Paket sembakonya terbuka dan seimbang sempurna!");
+        app.awardSticker(8);
+      } else {
+        app.setMimo("senang", `Pas seimbang di ${fmtID(l)} gram!`);
+      }
+    }
+  },
+  leftSum() { return this.state.left.reduce((a,id)=>a+(this.items.find(x=>x.id===id)?.gram||0),0); },
+  rightSum() { return this.state.right.reduce((a,b)=>a+b,0); },
+  render() {
+    const l = this.leftSum(), r = this.rightSum(), diff = r - l;
+    const ang = Math.max(-18, Math.min(18, diff / 85));
+    const bal = l > 0 && l === r;
+    const rad = ang * Math.PI / 180;
+    const lx = 280 - Math.cos(rad)*155, ly = 122 - Math.sin(rad)*155;
+    const rx = 280 + Math.cos(rad)*155, ry = 122 + Math.sin(rad)*155;
+    return `
+      <div class="card touch-stage" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1.8fr 1fr;gap:12px;align-items:stretch">
+          <div style="background:var(--surface-2);border-radius:14px;padding:10px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-weight:700;font-size:13px">
+              <span>Sembako</span><button style="background:none;border:none;color:var(--accent);font-weight:700;cursor:pointer" onclick="WIDGETS[8].loadAll()">Muat Semua</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              ${this.items.map(it=>{
+                const on = this.state.left.includes(it.id);
+                return `<button class="btn" style="min-height:56px;padding:6px;flex-direction:column;font-size:12px;${on?'background:var(--accent);color:#fff;border-color:var(--accent-dark)':''}" onclick="WIDGETS[8].toggleLeft('${it.id}')"><span>${it.nama}</span><span class="mono">${it.label}</span></button>`;
+              }).join("")}
+            </div>
+          </div>
+          <div style="text-align:center">
+            <div style="display:flex;justify-content:space-between;font-weight:700;font-size:14px" class="mono">
+              <span>Kiri: ${fmtID(l)} g</span>
+              <span style="color:${bal?'var(--ok)':'var(--muted)'}">${bal?'SEIMBANG!':diff>0?'Kanan Berat':l>r?'Kiri Berat':'Kosong'}</span>
+              <span>Kanan: ${fmtID(r)} g</span>
+            </div>
+            <svg viewBox="0 0 560 270" style="width:100%;max-width:520px">
+              <path d="M210 258 L350 258 L332 236 L228 236 Z" fill="#334155"/>
+              <rect x="271" y="122" width="18" height="118" rx="6" fill="#475569"/>
+              <g transform="rotate(${ang},280,122)">
+                <rect x="115" y="115" width="330" height="14" rx="7" fill="${bal?'#10b981':'#64748b'}" stroke="#0f172a" stroke-width="2"/>
+                <polygon points="280,82 273,115 287,115" fill="${bal?'#10b981':'#ef4444'}"/>
+              </g>
+              <g transform="translate(${lx},${ly})">
+                <line x1="0" y1="0" x2="-46" y2="70" stroke="#94a3b8" stroke-width="2.5"/><line x1="0" y1="0" x2="46" y2="70" stroke="#94a3b8" stroke-width="2.5"/>
+                <path d="M-60 70 Q0 90 60 70 Z" fill="#0284c7"/>
+                <text x="0" y="102" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">${this.state.left.length} barang</text>
+              </g>
+              <g transform="translate(${rx},${ry})">
+                <line x1="0" y1="0" x2="-46" y2="70" stroke="#94a3b8" stroke-width="2.5"/><line x1="0" y1="0" x2="46" y2="70" stroke="#94a3b8" stroke-width="2.5"/>
+                <path d="M-60 70 Q0 90 60 70 Z" fill="#d97706"/>
+                ${this.state.right.slice(0,10).map((g,i)=>`<g onclick="WIDGETS[8].removeRight(${i})" style="cursor:pointer" transform="translate(${-42+(i%4)*22},${48-Math.floor(i/4)*18})"><rect width="20" height="16" rx="3" fill="#f59e0b" stroke="#78350f"/><text x="10" y="12" text-anchor="middle" font-size="8" font-weight="700" fill="#451a03">${g>=1000?'1k':g}</text></g>`).join("")}
+                <text x="0" y="102" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">Ketuk batu untuk lepas</text>
+              </g>
+              ${this.state.wow?`<rect x="135" y="10" width="290" height="44" rx="10" fill="#ecfdf5" stroke="#10b981" stroke-width="2.5"/><text x="280" y="37" text-anchor="middle" font-size="14" font-weight="800" fill="#065f46">PAKET TERBUKA: 3.680 GRAM!</text>`:""}
+            </svg>
+            <button class="btn" onclick="WIDGETS[8].reset()">Kosongkan Timbangan</button>
+          </div>
+          <div style="background:var(--surface-2);border-radius:14px;padding:10px">
+            <div style="font-weight:700;font-size:13px;margin-bottom:8px">Anak Timbangan</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              ${[1000,500,200,100,50,20,10].map(g=>`<button class="btn mono" style="min-height:56px;background:#fef3c7;color:#78350f;border-color:#f59e0b" onclick="WIDGETS[8].addRight(${g})">${g>=1000?'1 kg':g+' g'}</button>`).join("")}
+            </div>
+          </div>
+        </div>
+        <div style="background:var(--surface-2);border-radius:12px;padding:10px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
+          <strong>Tangga Satuan (${this.state.ladderLabel}):</strong>
+          <div class="mono" style="display:flex;gap:12px;font-weight:700">
+            <span>${fmtID(this.state.ladderGram/1000,3)} kg</span> →
+            <span>${fmtID(this.state.ladderGram/100,2)} hg</span> →
+            <span>${fmtID(this.state.ladderGram/10,1)} dag</span> →
+            <span style="color:var(--ok)">${fmtID(this.state.ladderGram,0)} g</span>
+          </div>
+        </div>
+      </div>`;
+  }
+};
+
+// --- WIDGET 20: TANAH PAK BONI ---
+WIDGETS[20] = {
+  state: { h: false, v: false },
+  toggle(axis) {
+    Sound.click();
+    this.state[axis] = !this.state[axis];
+    if (this.state.h && this.state.v) {
+      Sound.ding();
+      app.setMimo("kaget", "WAH! Garis lekukan pas menutup persegi panjang 20 m × 12 m! Kelilingnya TETAP 64 meter!");
+      app.awardSticker(20);
+    }
+    app.render();
+  },
+  reset() { Sound.pop(); this.state = { h: false, v: false }; app.render(); },
+  render() {
+    const iy = this.state.h ? 48 : 138;
+    const ix = this.state.v ? 450 : 360;
+    const wow = this.state.h && this.state.v;
+    return `
+      <div class="card touch-stage" style="text-align:center">
+        <svg viewBox="0 0 540 310" style="width:100%;max-width:620px">
+          <rect x="90" y="48" width="360" height="216" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-dasharray="8 6"/>
+          <rect x="360" y="48" width="90" height="90" fill="#bae6fd" opacity="0.75"/>
+          <text x="405" y="96" text-anchor="middle" font-size="13" font-weight="700" fill="#0369a1">Kolam 5×5</text>
+          <path d="M 90 48 L 360 48 L 360 138 L 450 138 L 450 264 L 90 264 Z" fill="#bbf7d0" stroke="#15803d" stroke-width="3"/>
+          <line x1="90" y1="264" x2="450" y2="264" stroke="#059669" stroke-width="5"/><text x="270" y="288" text-anchor="middle" font-weight="800" fill="currentColor">20 m</text>
+          <line x1="90" y1="48" x2="90" y2="264" stroke="#059669" stroke-width="5"/><text x="64" y="160" text-anchor="middle" font-weight="800" fill="currentColor">12 m</text>
+          <text x="225" y="36" text-anchor="middle" font-weight="800" fill="#0284c7">15 m</text>
+          <text x="472" y="205" text-anchor="middle" font-weight="800" fill="#d97706">7 m</text>
+          <g style="cursor:pointer" onclick="WIDGETS[20].toggle('h')">
+            <line x1="360" y1="${iy}" x2="450" y2="${iy}" stroke="#0284c7" stroke-width="7" stroke-linecap="round"/>
+            <text x="405" y="${iy-10}" text-anchor="middle" font-weight="800" fill="#0284c7">5 m (geser ↑)</text>
+          </g>
+          <g style="cursor:pointer" onclick="WIDGETS[20].toggle('v')">
+            <line x1="${ix}" y1="48" x2="${ix}" y2="138" stroke="#d97706" stroke-width="7" stroke-linecap="round"/>
+            <text x="${ix+24}" y="96" text-anchor="middle" font-weight="800" fill="#d97706">5 m (→)</text>
+          </g>
+          ${wow?`<rect x="90" y="48" width="360" height="216" fill="none" stroke="#10b981" stroke-width="6"/>`:""}
+        </svg>
+        <div class="mono" style="font-weight:800;font-size:16px;margin:8px 0">
+          15 + 5 = 20 m · 7 + 5 = 12 m · Keliling = 2 × (20 + 12) = 64 m
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-lg btn-primary" onclick="WIDGETS[20].toggle('h')">${this.state.h?'Kembalikan Mendatar':'Geser Sisi Mendatar 5 m'}</button>
+          <button class="btn btn-lg btn-warn" onclick="WIDGETS[20].toggle('v')">${this.state.v?'Kembalikan Tegak':'Geser Sisi Tegak 5 m'}</button>
+          <button class="btn btn-lg" onclick="WIDGETS[20].reset()">Ulangi</button>
+        </div>
+      </div>`;
+  }
+};
+
+// --- WIDGET 25: SOBEK SUDUT ---
+WIDGETS[25] = {
+  state: { A: 0, B: 0, C: 0 }, // 0: utuh, 1: disobek, 2: di penggaris 180
+  tap(k) {
+    Sound.init();
+    if (this.state[k] === 0) { Sound.tear(); this.state[k] = 1; }
+    else if (this.state[k] === 1) { Sound.click(); this.state[k] = 2; }
+    if (this.state.A===2 && this.state.B===2 && this.state.C===2) {
+      Sound.ding();
+      app.setMimo("kaget", "180° MENYALA! Ketiga sudut pas membentuk garis lurus! Sudut C = 180° − 50° − 100° = 30°!");
+      app.awardSticker(25);
+    }
+    app.render();
+  },
+  reset() { Sound.pop(); this.state = { A:0, B:0, C:0 }; app.render(); },
+  sector(s, span, r, cx, cy) {
+    const a1 = s*Math.PI/180, a2 = (s-span)*Math.PI/180;
+    return `M ${cx} ${cy} L ${cx+r*Math.cos(a1)} ${cy-r*Math.sin(a1)} A ${r} ${r} 0 0 1 ${cx+r*Math.cos(a2)} ${cy-r*Math.sin(a2)} Z`;
+  },
+  render() {
+    const s = this.state, wow = s.A===2 && s.B===2 && s.C===2;
+    return `
+      <div class="card touch-stage" style="text-align:center">
+        <svg viewBox="0 0 560 220" style="width:100%;max-width:560px">
+          <polygon points="90,190 245,45 470,190" fill="#fef3c7" stroke="#b45309" stroke-width="2.5"/>
+          ${s.A<2?`<g onclick="WIDGETS[25].tap('A')" style="cursor:pointer" transform="${s.A===1?'translate(-12,6)':''}"><polygon points="90,190 144,140 162,190" fill="#0284c7"/><text x="122" y="178" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">A: 50°</text></g>`:""}
+          ${s.B<2?`<g onclick="WIDGETS[25].tap('B')" style="cursor:pointer" transform="${s.B===1?'translate(0,-12)':''}"><polygon points="245,45 198,89 306,84" fill="#d97706"/><text x="249" y="75" text-anchor="middle" font-size="12" font-weight="800" fill="#fff">B: 100°</text></g>`:""}
+          ${s.C<2?`<g onclick="WIDGETS[25].tap('C')" style="cursor:pointer" transform="${s.C===1?'translate(12,6)':''}"><polygon points="470,190 404,147 392,190" fill="#059669"/><text x="424" y="178" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">C: ?</text></g>`:""}
+        </svg>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:12px">
+          ${["A","B","C"].map(k=>`<button class="btn btn-lg ${s[k]===1?'btn-primary':''}" onclick="WIDGETS[25].tap('${k}')">${s[k]===0?'Sobek Sudut '+k:s[k]===1?'Taruh '+k+' ke Garis 180°':'Sudut '+k+' Terpasang'}</button>`).join("")}
+          <button class="btn btn-lg" onclick="WIDGETS[25].reset()">Sambung Ulang</button>
+        </div>
+        <svg viewBox="0 0 460 160" style="width:100%;max-width:460px">
+          <line x1="40" y1="140" x2="420" y2="140" stroke="#334155" stroke-width="4"/>
+          ${s.A===2?`<path d="${this.sector(180,50,120,230,140)}" fill="#0284c7" stroke="#fff" stroke-width="2"/>`:""}
+          ${s.B===2?`<path d="${this.sector(130,100,120,230,140)}" fill="#d97706" stroke="#fff" stroke-width="2"/>`:""}
+          ${s.C===2?`<path d="${this.sector(30,30,120,230,140)}" fill="#059669" stroke="#fff" stroke-width="2"/>`:""}
+          ${wow?`<path d="M 85 140 A 145 145 0 0 1 375 140" fill="none" stroke="#10b981" stroke-width="5"/><text x="230" y="156" text-anchor="middle" font-weight="800" fill="#059669">50° + 100° + 30° = 180°</text>`:""}
+        </svg>
+      </div>`;
+  }
+};
+
+//=== TEMPEL WIDGET BERIKUTNYA DI SINI ===
+
+// ==================== 5. MESIN APLIKASI & MODE GURU ====================
+const app = {
+  view: "map",
+  qid: 8,
+  stage: 0,
+  stepIdx: 0,
+  hintLv: 0,
+  mimoMood: "senang",
+  mimoMsg: "",
+  mimoTaps: 0,
+  pgSel: null,
+  pgkSel: [],
+  catSel: {},
+  feedback: null,
+  stickers: [],
+  bintang: 0,
+  frozen: false,
+  teacherOpen: false,
+  modeKelas: "maju-satu",
+  tim: "A",
+  temuan: ["Kelompok 1: Samakan satuan sebelum menghitung."],
+  acakTerpilih: null,
+
+  init() {
+    try {
+      this.stickers = JSON.parse(localStorage.getItem("kota_mat_stickers") || "[]");
+      this.bintang = Number(localStorage.getItem("kota_mat_bintang") || "0");
+    } catch {}
+    document.addEventListener("keydown", e => {
+      if (["INPUT","TEXTAREA"].includes(document.activeElement?.tagName)) return;
+      if (e.key.toLowerCase()==="m") this.toggleMute();
+      if (e.key.toLowerCase()==="f") this.toggleFullscreen();
+      if (this.view==="question" && (e.key==="ArrowRight"||e.key===" ")) { e.preventDefault(); if(this.stage<4) this.setStage(this.stage+1); }
+      if (this.view==="question" && e.key==="ArrowLeft") { e.preventDefault(); if(this.stage>0) this.setStage(this.stage-1); }
+    });
+    this.render();
+  },
+  setMimo(m, t) { this.mimoMood = m; this.mimoMsg = t; },
+  tapMimo() {
+    this.mimoTaps++;
+    if (this.mimoTaps >= 5) {
+      this.mimoTaps = 0; Sound.ding();
+      this.setMimo("kaget", "Hehe, geli sekali! Mimo kasih bonus stiker untuk kelas!");
+      this.awardSticker(this.qid);
+    } else { Sound.pop(); }
+    this.render();
+  },
+  awardSticker(id) {
+    if (!this.stickers.includes(id)) {
+      this.stickers.push(id); this.bintang++;
+      try { localStorage.setItem("kota_mat_stickers", JSON.stringify(this.stickers)); localStorage.setItem("kota_mat_bintang", String(this.bintang)); } catch {}
+    }
+  },
+  goMap() { Sound.click(); this.view = "map"; this.render(); },
+  goBuku() { Sound.click(); this.view = "buku"; this.render(); },
+  openQ(id) {
+    Sound.click(); this.qid = id; this.view = "question"; this.stage = 0; this.stepIdx = 0;
+    this.hintLv = 0; this.pgSel = null; this.pgkSel = []; this.catSel = {}; this.feedback = null;
+    const q = TKA_DATA.soal.find(x=>x.id===id);
+    this.setMimo("senang", q.cerita || `Ayo jelajahi panggung ${q.nama}!`);
+    this.render();
+  },
+  setStage(s) {
+    Sound.click(); this.stage = s;
+    const q = TKA_DATA.soal.find(x=>x.id===this.qid);
+    if (s===0) this.setMimo("senang", q.cerita || q.nama);
+    if (s===1) this.setMimo("senang", "Gerakkan panggungnya! Tidak ada benar atau salah di sini.");
+    if (s===2) this.setMimo("berpikir", q.temukan || "Pola apa yang kalian temukan?");
+    if (s===3) this.setMimo("senang", "Ikuti langkah pengerjaannya satu per satu!");
+    if (s===4) this.setMimo("berpikir", "Sekarang ayo coba jawab soal persis seperti di latihan!");
+    this.render();
+  },
+  toggleMute() {
+    Sound.muted = !Sound.muted;
+    document.getElementById("btn-mute").textContent = Sound.muted ? "Suara Dibisukan (M)" : "Suara Aktif (M)";
+  },
+  toggleTheme() { Sound.click(); document.documentElement.classList.toggle("dark"); },
+  toggleFullscreen() {
+    Sound.click();
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(()=>{});
+    else document.exitFullscreen?.().catch(()=>{});
+  },
+  toggleTeacher(v) { Sound.click(); this.teacherOpen = v; this.render(); },
+  toggleFreeze() { Sound.click(); this.frozen = !this.frozen; this.render(); },
+  checkAns() {
+    const q = TKA_DATA.soal.find(x=>x.id===this.qid);
+    if (q.bentuk==="PG") {
+      if (!this.pgSel) return;
+      if (this.pgSel===q.kunci) {
+        Sound.clap(); this.awardSticker(q.id);
+        this.setMimo("bersorak", `Hebat! Pilihan ${this.pgSel} tepat!`);
+        this.feedback = { ok: true, msg: "Benar! " + q.langkah.join(" ") };
+      } else {
+        Sound.softWrong();
+        const o = q.opsi.find(x=>x.id===this.pgSel);
+        const msg = o?.salah || "Belum pas, coba cek lagi langkah pengerjaannya!";
+        this.setMimo("bingung", msg); this.feedback = { ok: false, msg };
+      }
+    } else if (q.bentuk==="PGK") {
+      const exp = [...q.kunci].sort().join(","), got = [...this.pgkSel].sort().join(",");
+      if (exp===got) {
+        Sound.clap(); this.awardSticker(q.id);
+        this.setMimo("bersorak", "Tepat semua pernyataan yang benar!");
+        this.feedback = { ok: true, msg: "Benar! " + q.langkah.join(" ") };
+      } else {
+        Sound.softWrong();
+        const w = this.pgkSel.find(id=>!q.kunci.includes(id));
+        const msg = q.opsi.find(o=>o.id===w)?.salah || "Pilihan belum lengkap atau ada yang keliru, cek satu per satu!";
+        this.setMimo("bingung", msg); this.feedback = { ok: false, msg };
+      }
+    } else if (q.bentuk==="PGK_KATEGORI") {
+      if (q.pernyataan.some(p=>typeof this.catSel[p.id]!=="boolean")) return;
+      const w = q.pernyataan.find(p=>this.catSel[p.id]!==p.kunci);
+      if (!w) {
+        Sound.clap(); this.awardSticker(q.id);
+        this.setMimo("bersorak", "Luar biasa! Semua Benar/Salah tepat!");
+        this.feedback = { ok: true, msg: "Benar semua! " + q.langkah.join(" ") };
+      } else {
+        Sound.softWrong();
+        const msg = `Pernyataan ${w.id} belum tepat, cek lagi hitungannya ya!`;
+        this.setMimo("bingung", msg); this.feedback = { ok: false, msg };
+      }
+    }
+    this.render();
+  },
+  render() {
+    document.getElementById("bintang-txt").textContent = "★ " + this.bintang;
+    document.getElementById("stiker-txt").textContent = `${this.stickers.length}/25`;
+    document.getElementById("nav-map").className = this.view==="map" ? "active" : "";
+    document.getElementById("nav-buku").className = this.view==="buku" ? "active" : "";
+
+    const root = document.getElementById("app-root");
+    if (this.view==="map") {
+      root.innerHTML = `
+        <div class="card" style="margin-bottom:16px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:14px">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--accent)">${TKA_DATA.labelResmi} · Tahap 1</div>
+            <h1 style="margin:4px 0">Peta Kota Matematika (25 Soal)</h1>
+            <p style="margin:0;color:var(--muted)">Widget patokan penuh siap dimainkan: Soal 8 (Timbangan Sembako), Soal 20 (Tanah Pak Boni), Soal 25 (Sobek Sudut).</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${[8,20,25].map(id=>`<button class="btn btn-lg btn-primary" onclick="app.openQ(${id})">Buka Soal ${id}</button>`).join("")}
+          </div>
+        </div>
+        <div class="grid-3">
+          ${TKA_DATA.soal.map(q=>`
+            <button class="card" style="text-align:left;cursor:pointer;border-width:${WIDGETS[q.id]?'2px':'1px'};border-color:${WIDGETS[q.id]?'var(--accent)':'var(--border)'}" onclick="app.openQ(${q.id})">
+              <div style="font-size:12px;color:var(--muted)">Soal ${q.id} · ${q.elemen} · ${q.bentuk} ${this.stickers.includes(q.id)?'· ★':''}</div>
+              <div style="font-size:18px;font-weight:800;margin:4px 0">${q.nama}</div>
+              <div style="font-size:13px;color:var(--muted)">${WIDGETS[q.id]?'Widget Penuh Siap →':'Lihat Soal & Langkah →'}</div>
+            </button>`).join("")}
+        </div>`;
+    } else if (this.view==="buku") {
+      root.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h1 style="margin:0">Buku Saku Materi TKA SD</h1>
+          <button class="btn btn-primary" onclick="app.goMap()">Kembali ke Peta Soal</button>
+        </div>
+        <div class="grid-2">${TKA_DATA.materi.map(m=>`<div class="card"><h3>${m.judul}</h3><ul>${m.isi.map(i=>`<li>${i}</li>`).join("")}</ul></div>`).join("")}</div>`;
+    } else {
+      const q = TKA_DATA.soal.find(x=>x.id===this.qid);
+      const stages = ["1. Cerita","2. Mainkan","3. Temukan","4. Langkah","5. Coba Jawab"];
+      root.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px">
+          <button class="btn" onclick="app.goMap()">← Kembali ke Peta Soal</button>
+          <strong>Soal ${q.id}: ${q.nama} · ${q.elemen}</strong>
+          <div style="display:flex;gap:6px">
+            ${["maju-satu","berdua","tim"].map(m=>`<button class="btn ${this.modeKelas===m?'btn-primary':''}" onclick="app.modeKelas='${m}';app.render()">${m==='maju-satu'?'Maju Satu':m==='berdua'?'Berdua':'Mode Tim'}</button>`).join("")}
+          </div>
+        </div>
+        <div class="stepper">${stages.map((s,i)=>`<button class="btn ${this.stage===i?'btn-primary':''}" onclick="app.setStage(${i})">${s}</button>`).join("")}</div>
+        <div class="mimo-box">${renderMimoSVG(this.mimoMood)}<div class="mimo-bubble"><strong>Mimo:</strong> ${this.mimoMsg}</div></div>
+        ${this.stage>=1 ? (WIDGETS[q.id] ? WIDGETS[q.id].render() : this.renderFallbackVisual(q)) : `<div class="card" style="text-align:center;padding:32px"><h2>${q.nama}</h2><p>${q.cerita||q.teks}</p><button class="btn btn-lg btn-primary" onclick="app.setStage(1)">Mulai Mainkan →</button></div>`}
+        ${this.stage===2 ? `<div class="card" style="margin-top:12px"><strong>Pertanyaan Pemantik:</strong> ${q.temukan||'Mengapa cara ini bekerja?'} <button class="btn btn-warn" style="margin-left:12px" onclick="app.setStage(3)">Lihat Langkah →</button></div>`:""}
+        ${this.stage===3 ? `<div class="card" style="margin-top:12px"><h3>Langkah Pengerjaan</h3>${q.langkah.slice(0,this.stepIdx+1).map((l,i)=>`<p><strong>Langkah ${i+1}:</strong> ${l}</p>`).join("")}<div style="display:flex;gap:8px">${this.stepIdx<q.langkah.length-1?`<button class="btn btn-primary" onclick="app.stepIdx++;app.render()">Langkah Berikutnya →</button>`:`<button class="btn btn-ok" onclick="app.setStage(4)">Lanjut Coba Jawab →</button>`}</div></div>`:""}
+        ${this.stage===4 ? this.renderAnswerBox(q) : ""}`;
+    }
+
+    document.getElementById("teacher-root").innerHTML = this.teacherOpen ? this.renderTeacherDrawer() : "";
+    document.getElementById("freeze-root").innerHTML = this.frozen ? `<div class="overlay"><div><h1>Layar Dibekukan oleh Guru</h1><p>Ayo diskusi dengan teman sekelompok dulu!</p><button class="btn btn-lg btn-warn" onclick="app.toggleFreeze()">Lanjutkan Layar</button></div></div>` : "";
+  },
+  renderFallbackVisual(q) {
+    let extra = "";
+    if (q.tabel) extra = `<table><tr>${q.tabel.headers.map(h=>`<th>${h}</th>`).join("")}</tr><tr>${q.tabel.row.map(c=>`<td class="mono">${c}</td>`).join("")}</tr></table>`;
+    if (q.piktogram) extra = `<div><strong>${q.piktogram.ket}</strong>${q.piktogram.rows.map(r=>`<div style="margin:6px 0"><strong>${r.nama}:</strong> ${"■ ".repeat(r.n)}</div>`).join("")}</div>`;
+    return `<div class="card"><strong>Panggung ${q.nama}</strong>${extra||"<p>Gunakan tahapan Langkah & Coba Jawab untuk menyelesaikan soal ini.</p>"}</div>`;
+  },
+  renderAnswerBox(q) {
+    let opts = "";
+    if (q.bentuk==="PG") {
+      opts = `<div class="grid-2">${q.opsi.map(o=>`<button class="btn btn-lg ${this.pgSel===o.id?'btn-primary':''}" onclick="app.pgSel='${o.id}';app.feedback=null;app.render()">${o.id}. ${o.label}</button>`).join("")}</div>`;
+    } else if (q.bentuk==="PGK") {
+      opts = q.opsi.map(o=>{
+        const on = this.pgkSel.includes(o.id);
+        return `<button class="btn btn-lg" style="width:100%;margin-bottom:8px;justify-content:flex-start;${on?'background:var(--accent);color:#fff':''}" onclick="app.pgkSel=app.pgkSel.includes('${o.id}')?app.pgkSel.filter(x=>x!=='${o.id}'):[...app.pgkSel,'${o.id}'];app.feedback=null;app.render()">${on?'✓':'☐'} ${o.id}. ${o.label}</button>`;
+      }).join("");
+    } else {
+      opts = q.pernyataan.map(p=>`
+        <div class="card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <span><strong>${p.id}.</strong> ${p.teks}</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn ${this.catSel[p.id]===true?'btn-ok':''}" onclick="app.catSel['${p.id}']=true;app.feedback=null;app.render()">Benar</button>
+            <button class="btn ${this.catSel[p.id]===false?'btn-warn':''}" onclick="app.catSel['${p.id}']=false;app.feedback=null;app.render()">Salah</button>
+          </div>
+        </div>`).join("");
+    }
+    return `
+      <div class="card" style="margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;color:var(--muted)">Soal ${q.id}</span>
+          <button class="btn" onclick="app.hintLv=app.hintLv<3?app.hintLv+1:0;app.render()">Petunjuk (${this.hintLv}/3)</button>
+        </div>
+        <p style="font-size:18px;font-weight:700">${q.teks}</p>
+        ${this.hintLv>0?`<div class="card" style="background:var(--surface-2);margin-bottom:10px">${q.petunjuk.slice(0,this.hintLv).map((h,i)=>`<div><strong>Petunjuk ${i+1}:</strong> ${h}</div>`).join("")}</div>`:""}
+        ${opts}
+        <div style="margin-top:12px"><button class="btn btn-lg btn-ok" onclick="app.checkAns()">Periksa Jawaban</button></div>
+        ${this.feedback?`<div class="card" style="margin-top:12px;border-color:${this.feedback.ok?'var(--ok)':'var(--warn)'}"><strong>${this.feedback.ok?'✓ ':'Mari cek lagi: '}</strong>${this.feedback.msg}</div>`:""}
+      </div>`;
+  },
+  renderTeacherDrawer() {
+    const q = TKA_DATA.soal.find(x=>x.id===this.qid);
+    const kg = q?.kartuGuru;
+    return `<div class="drawer-backdrop"><div class="drawer">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0">Mode Guru</h2><button class="btn" onclick="app.toggleTeacher(false)">Tutup</button>
+      </div>
+      <button class="btn btn-lg btn-warn" onclick="app.toggleFreeze()">Bekukan Layar untuk Diskusi</button>
+      ${kg?`<div class="card"><h3>Kartu Guru (Soal ${q.id})</h3><p><strong>Pemantik:</strong> ${kg.pemantik}</p><p><strong>Waspada:</strong> ${kg.waspada}</p><p><strong>Mari Salah:</strong> ${kg.mariSalah}</p></div>`:""}
+      <div class="card">
+        <h3>Pengacak Siswa</h3>
+        <button class="btn btn-primary" onclick="const n=['Alya','Bima','Candra','Dinda','Edo','Farah'];app.acakTerpilih=n[Math.floor(Math.random()*n.length)];app.render()">Acak Giliran Maju</button>
+        ${this.acakTerpilih?`<p style="font-size:18px;font-weight:800">Giliran: ${this.acakTerpilih}</p>`:""}
+      </div>
+      <div class="card">
+        <h3>Papan Temuan Kelas</h3>
+        <input id="temuan-in" style="width:100%;padding:8px;margin-bottom:8px" placeholder="Tulis temuan kelompok..."/>
+        <button class="btn" onclick="const v=document.getElementById('temuan-in').value;if(v){app.temuan.unshift(v);app.render();}">Simpan Temuan</button>
+        <ul>${this.temuan.map(t=>`<li>${t}</li>`).join("")}</ul>
+      </div>
+    </div></div>`;
+  }
+};
+app.init();
+</script>
+</body>
+</html>

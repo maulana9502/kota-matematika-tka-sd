@@ -1,0 +1,175 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Outfit', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    overscroll-behavior-y: auto;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  .font-mono-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.touch-stage {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes floatGentle {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes celebratePop {
+  0% { transform: scale(0.84); opacity: 0; }
+  60% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes bgPanZoom {
+  0% { transform: scale(1.01) translate3d(0px, 0px, 0px); }
+  50% { transform: scale(1.05) translate3d(-1%, -0.5%, 0px); }
+  100% { transform: scale(1.01) translate3d(0px, 0px, 0px); }
+}
+
+@keyframes driftFloatSlow {
+  0% { transform: translate3d(0, 0px, 0) rotate(0deg); opacity: 0.16; }
+  50% { transform: translate3d(18px, -28px, 0) rotate(10deg); opacity: 0.28; }
+  100% { transform: translate3d(0, 0px, 0) rotate(0deg); opacity: 0.16; }
+}
+
+@keyframes driftFloatAlt {
+  0% { transform: translate3d(0, 0px, 0) rotate(0deg); opacity: 0.14; }
+  50% { transform: translate3d(-20px, -22px, 0) rotate(-12deg); opacity: 0.26; }
+  100% { transform: translate3d(0, 0px, 0) rotate(0deg); opacity: 0.14; }
+}
+
+@keyframes cloudDriftSlow {
+  0% { transform: translate3d(-18vw, 0px, 0); }
+  100% { transform: translate3d(118vw, 0px, 0); }
+}
+
+@keyframes cloudDriftReverse {
+  0% { transform: translate3d(115vw, 0px, 0); }
+  100% { transform: translate3d(-20vw, 0px, 0); }
+}
+
+@keyframes walkAcrossLTR {
+  0% { transform: translate3d(-14vw, 0px, 0); }
+  100% { transform: translate3d(114vw, 0px, 0); }
+}
+
+@keyframes walkAcrossRTL {
+  0% { transform: translate3d(114vw, 0px, 0) scaleX(-1); }
+  100% { transform: translate3d(-14vw, 0px, 0) scaleX(-1); }
+}
+
+@keyframes walkStepBob {
+  0%, 100% { transform: translateY(0px) rotate(-1.5deg); }
+  50% { transform: translateY(-3px) rotate(1.5deg); }
+}
+
+.animate-float-gentle {
+  animation: floatGentle 3.2s ease-in-out infinite;
+}
+
+.animate-celebrate-pop {
+  animation: celebratePop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-bg-pan {
+  animation: bgPanZoom 28s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-drift-1 {
+  animation: driftFloatSlow 9s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-drift-2 {
+  animation: driftFloatAlt 11s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-cloud-1 {
+  animation: cloudDriftSlow 58s linear infinite;
+  will-change: transform;
+}
+
+.animate-cloud-2 {
+  animation: cloudDriftSlow 74s linear infinite;
+  animation-delay: -28s;
+  will-change: transform;
+}
+
+.animate-cloud-3 {
+  animation: cloudDriftReverse 66s linear infinite;
+  animation-delay: -18s;
+  will-change: transform;
+}
+
+.animate-walk-ltr {
+  animation: walkAcrossLTR 34s linear infinite;
+  will-change: transform;
+}
+
+.animate-walk-ltr-2 {
+  animation: walkAcrossLTR 42s linear infinite;
+  animation-delay: -19s;
+  will-change: transform;
+}
+
+.animate-walk-rtl {
+  animation: walkAcrossRTL 38s linear infinite;
+  animation-delay: -11s;
+  will-change: transform;
+}
+
+.animate-walk-bob {
+  animation: walkStepBob 0.55s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-gentle,
+  .animate-celebrate-pop,
+  .animate-bg-pan,
+  .animate-drift-1,
+  .animate-drift-2,
+  .animate-cloud-1,
+  .animate-cloud-2,
+  .animate-cloud-3,
+  .animate-walk-ltr,
+  .animate-walk-ltr-2,
+  .animate-walk-rtl,
+  .animate-walk-bob,
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

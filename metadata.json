@@ -1,0 +1,8 @@
+{
+  "name": "Kota Matematika - Latihan TKA SD Kelas 6",
+  "description": "Media pembelajaran matematika interaktif kelas 6 SD untuk persiapan TKA SD dengan panggung konsep visual, maskot Mimo, dan mode papan interaktif kelas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
