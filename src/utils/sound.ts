@@ -1,12 +1,14 @@
-// Web Audio API synthesizer + ambient classroom backsound + Indonesian SpeechSynthesis voice reader
+// Web Audio API synthesizer + ambient classroom backsound with Auto-Ducking + Indonesian SpeechSynthesis voice reader
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
+  private musicGain: GainNode | null = null;
   private muted: boolean = false;
   private musicEnabled: boolean = true;
   private musicTimer: number | null = null;
   private musicStep: number = 0;
   private unlocked: boolean = false;
+  private ducked: boolean = false;
 
   constructor() {
     try {
@@ -30,12 +32,29 @@ class SoundEngine {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
       this.ctx = new AudioCtx();
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = this.ducked ? 0.2 : 1.0;
+      this.musicGain.connect(this.ctx.destination);
       if (this.ctx.state === 'suspended') {
         this.ctx.resume().catch(() => {});
       }
       this.unlocked = true;
     } catch {
       // Web Audio unavailable
+    }
+  }
+
+  public setDucking(active: boolean) {
+    this.ducked = active;
+    if (!this.ctx || !this.musicGain) return;
+    const now = this.ctx.currentTime;
+    const target = active ? 0.18 : 1.0;
+    try {
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
+      this.musicGain.gain.linearRampToValueAtTime(target, now + (active ? 0.18 : 0.4));
+    } catch {
+      this.musicGain.gain.value = target;
     }
   }
 
@@ -83,12 +102,12 @@ class SoundEngine {
     this.unlock();
     if (!this.ctx || this.musicTimer !== null) return;
 
-    // Gentle cheerful classroom marimba/kalimba melody in C major pentatonic
+    // Calm & cheerful adventure instrumental marimba/kalimba melody in C major pentatonic
     const melody = [
       523.25, 659.25, 783.99, 659.25,
-      587.33, 659.25, 523.25, 392.00,
-      440.00, 523.25, 659.25, 523.25,
-      587.33, 440.00, 392.00, 523.25
+      587.33, 659.25, 523.25, 392.0,
+      440.0, 523.25, 659.25, 523.25,
+      587.33, 440.0, 392.0, 523.25
     ];
     const bass = [261.63, 261.63, 196.0, 196.0, 220.0, 220.0, 196.0, 261.63];
 
@@ -99,20 +118,18 @@ class SoundEngine {
       }
       const idx = this.musicStep % melody.length;
       const freq = melody[idx];
-      // Soft marimba chime
-      this.playTone(freq, 0.38, 'sine', 0.032, 0);
-      this.playTone(freq * 2, 0.18, 'triangle', 0.008, 0.01);
+      this.playMusicTone(freq, 0.42, 'sine', 0.03, 0);
+      this.playMusicTone(freq * 2, 0.2, 'triangle', 0.007, 0.01);
 
-      // Gentle bass pulse every 2 beats
       if (idx % 2 === 0) {
         const bFreq = bass[(idx / 2) % bass.length];
-        this.playTone(bFreq, 0.55, 'sine', 0.025, 0);
+        this.playMusicTone(bFreq, 0.6, 'sine', 0.024, 0);
       }
       this.musicStep++;
     };
 
     tick();
-    this.musicTimer = window.setInterval(tick, 460);
+    this.musicTimer = window.setInterval(tick, 480);
   }
 
   public stopMusic() {
@@ -120,6 +137,22 @@ class SoundEngine {
       window.clearInterval(this.musicTimer);
       this.musicTimer = null;
     }
+  }
+
+  private playMusicTone(freq: number, duration: number, type: OscillatorType, volume: number, delay: number) {
+    if (this.muted || !this.ctx || !this.musicGain) return;
+    const now = this.ctx.currentTime + delay;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(volume, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0008, now + duration);
+    osc.connect(gain);
+    gain.connect(this.musicGain);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
   }
 
   private playTone(freq: number, duration: number, type: OscillatorType = 'sine', volume = 0.14, delay = 0) {
@@ -239,7 +272,8 @@ class SoundEngine {
 
 class VoiceEngine {
   private enabled: boolean = true;
-  private rate: number = 0.96;
+  private rate: number = 0.98;
+  private duckTimeout: number | null = null;
 
   constructor() {
     try {
@@ -276,6 +310,11 @@ class VoiceEngine {
   }
 
   public stop() {
+    if (this.duckTimeout !== null) {
+      window.clearTimeout(this.duckTimeout);
+      this.duckTimeout = null;
+    }
+    sound.setDucking(false);
     if (!this.isSupported()) return;
     try {
       window.speechSynthesis.cancel();
@@ -303,19 +342,41 @@ class VoiceEngine {
     if (!this.isSupported() || sound.isMuted()) return;
     if (!force && !this.enabled) return;
     try {
+      if (this.duckTimeout !== null) {
+        window.clearTimeout(this.duckTimeout);
+        this.duckTimeout = null;
+      }
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(this.cleanMathText(text));
       utter.lang = 'id-ID';
       utter.rate = this.rate;
-      utter.pitch = 1.05;
+      utter.pitch = 1.04;
       const voices = window.speechSynthesis.getVoices();
       const idVoice =
         voices.find((v) => v.lang.toLowerCase().startsWith('id')) ||
         voices.find((v) => v.lang.toLowerCase().includes('ind'));
       if (idVoice) utter.voice = idVoice;
+
+      utter.onstart = () => {
+        sound.setDucking(true);
+      };
+      utter.onend = () => {
+        sound.setDucking(false);
+      };
+      utter.onerror = () => {
+        sound.setDucking(false);
+      };
+
+      sound.setDucking(true);
       window.speechSynthesis.speak(utter);
+
+      // Fallback safety release in case browser omits onend
+      const estMs = Math.min(24000, Math.max(3000, text.length * 75));
+      this.duckTimeout = window.setTimeout(() => {
+        sound.setDucking(false);
+      }, estMs);
     } catch {
-      // Speech synthesis failed silently
+      sound.setDucking(false);
     }
   }
 }

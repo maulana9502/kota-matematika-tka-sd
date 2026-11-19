@@ -1,1391 +1,1369 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CITY_BUILDINGS } from './data/buildings';
+import { Kota3DEngine } from './game/Kota3DEngine';
 import {
-  TKA_QUESTIONS,
-  TkaQuestion,
-  QuestionTopic,
-  KOTA_LABEL
-} from './data/tkaData';
+  AvatarAppearance,
+  BuildingDef,
+  BuildingId,
+  ChapterId,
+  CompanionId,
+  OnlinePlayer,
+  PlayerIdentity,
+  PlayerProgress,
+  ResolvedTimeOfDay,
+  StationId,
+  TimeOfDayMode,
+  WeatherType
+} from './types/game';
+import {
+  auth,
+  loadCloudProgress,
+  saveCloudArchive,
+  saveCloudProgress,
+  signInWithGoogleWorkspace,
+  signOutGoogle,
+  testFirestoreConnection
+} from './utils/firebaseClient';
+import { DEFAULT_TEACHER_EMAIL } from './utils/googleSheets';
 import { sound, voice } from './utils/sound';
-import { MimoMascot, MimoMood } from './components/MimoMascot';
-import { Widget8Timbangan } from './components/widgets/Widget8Timbangan';
-import { Widget20Tanah } from './components/widgets/Widget20Tanah';
-import { Widget25Sudut } from './components/widgets/Widget25Sudut';
+import { LoginScreen } from './components/game/LoginScreen';
+import { TouchJoystick } from './components/game/TouchJoystick';
+import { MinimapRadar } from './components/game/MinimapRadar';
+import { AvatarStudioModal } from './components/game/AvatarStudioModal';
+import { OnlinePlayersModal } from './components/game/OnlinePlayersModal';
+import { BuildingStationModal } from './components/game/BuildingStationModal';
+import { ActiveDuelState, VersusModal } from './components/game/VersusModal';
+import { SheetGuruModal } from './components/game/SheetGuruModal';
 import {
-  Widget1MesinBentuk,
-  Widget2TokoMentari,
-  Widget3DapurJus,
-  Widget4PetakKebun,
-  Widget5KalenderRenang,
-  Widget6GuntingKawat,
-  Widget7GudangBuku,
-  Widget9PetaPerjalanan,
-  Widget10JamDimas,
-  Widget11KotakKubus,
-  Widget12BongkarBak
-} from './components/widgets/WidgetsSetA';
-import {
-  Widget13DetektifBangun,
-  Widget14KantorBerita,
-  Widget15KeranjangBuah,
-  Widget16LintasanSepeda,
-  Widget17TangkiEmber,
-  Widget18DaduPutar,
-  Widget19LoyangKue,
-  Widget21LahanParkir,
-  Widget22PekanLiterasi,
-  Widget23BukuCerita,
-  Widget24PackingParsel
-} from './components/widgets/WidgetsSetB';
-import { BukuSaku } from './components/BukuSaku';
-import { TeacherPanel } from './components/TeacherPanel';
-import { StepBlockChallenge } from './components/StepBlockChallenge';
+  Cloud,
+  CloudLightning,
+  CloudRain,
+  DoorOpen,
+  FileSpreadsheet,
+  Gamepad2,
+  LogOut,
+  Maximize2,
+  Minimize2,
+  Moon,
+  Palette,
+  Sun,
+  Sunrise,
+  Sunset,
+  Swords,
+  Users,
+  Volume2,
+  VolumeX,
+  Music
+} from 'lucide-react';
 
-type ViewMode = 'map' | 'question' | 'buku';
-type ClassroomMode = 'maju-satu' | 'berdua' | 'tim' | 'guru';
-type FaseKelas = 'contoh-guru' | 'giliran-siswa';
-type FormatSiswa = 'individu' | 'kelompok';
+const DEFAULT_IDENTITY: PlayerIdentity = {
+  uid: `guest_${Math.random().toString(36).slice(2, 10)}`,
+  name: '',
+  school: 'SMP Kemala Bhayangkari 7 Porong',
+  className: '6A',
+  shirtColor: '#2563EB',
+  pantsColor: '#1E293B',
+  hairColor: '#1E1B18',
+  hatStyle: 'default',
+  companion: 'garuda',
+  isGoogleUser: false
+};
 
-const STAGE_NAMES = ['1. Cerita', '2. Mainkan', '3. Temukan', '4. Susun Langkah', '5. Coba Jawab'];
-const TOTAL_ABSEN_KELAS = 36;
-const SOFT_SELL_COPY =
-  'Bosan belajar matematika yang cuma gitu-gitu aja? Di sini, rumus dan hitungan berubah jadi petualangan interaktif! Karya inovasi pembelajaran digital persembahan Tim Guru SMP Kemala Bhayangkari 7 Porong — tempat di mana belajar nggak cuma soal papan tulis, tapi juga eksplorasi teknologi masa depan.';
-const SOFT_SELL_VOICE_OVER = `${SOFT_SELL_COPY} Klik salah satu dari 25 panggung soal di peta untuk memulai peragaan guru lalu giliran siswa maju ke depan kelas!`;
+const DEFAULT_PROGRESS: PlayerProgress = {
+  completedQuestions: [],
+  completedContoh: [],
+  completedSteps: [],
+  chapterMastery: {
+    bilangan: 0,
+    geometri: 0,
+    pengukuran: 0,
+    data: 0,
+    strategi: 0
+  },
+  bintangBersama: 0,
+  versusWins: 0,
+  level: 1
+};
 
-const FLOATING_SYMBOLS = [
-  { sym: '+', top: '12%', left: '6%', cls: 'animate-drift-1' },
-  { sym: '×', top: '22%', left: '88%', cls: 'animate-drift-2' },
-  { sym: '½', top: '48%', left: '4%', cls: 'animate-drift-2' },
-  { sym: '180°', top: '65%', left: '91%', cls: 'animate-drift-1' },
-  { sym: '÷', top: '78%', left: '10%', cls: 'animate-drift-1' },
-  { sym: '%', top: '34%', left: '92%', cls: 'animate-drift-1' },
-  { sym: '△', top: '82%', left: '84%', cls: 'animate-drift-2' },
-  { sym: '=', top: '15%', left: '48%', cls: 'animate-drift-2' }
-];
+function loadLocalIdentity(): PlayerIdentity {
+  try {
+    const raw = localStorage.getItem('kota3d_identity');
+    if (raw) {
+      return { ...DEFAULT_IDENTITY, ...JSON.parse(raw) };
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_IDENTITY;
+}
+
+function loadLocalProgress(): PlayerProgress {
+  try {
+    const raw = localStorage.getItem('kota3d_progress');
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PlayerProgress>;
+      return {
+        ...DEFAULT_PROGRESS,
+        ...parsed,
+        chapterMastery: {
+          ...DEFAULT_PROGRESS.chapterMastery,
+          ...(parsed.chapterMastery || {})
+        }
+      };
+    }
+    const oldStickers = localStorage.getItem('kota_mat_stickers');
+    const oldBintang = localStorage.getItem('kota_mat_bintang');
+    if (oldStickers || oldBintang) {
+      const cq = oldStickers ? (JSON.parse(oldStickers) as number[]) : [];
+      const bb = Number(oldBintang || '0');
+      return {
+        ...DEFAULT_PROGRESS,
+        completedQuestions: cq,
+        bintangBersama: bb,
+        level: Math.max(1, 1 + Math.floor(cq.length / 4))
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_PROGRESS;
+}
+
+function resolveAutoTime(): ResolvedTimeOfDay {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 10) return 'pagi';
+  if (h >= 10 && h < 15) return 'siang';
+  if (h >= 15 && h < 18) return 'sore';
+  return 'malam';
+}
+
+function pickRandomIndices(count = 5, bankSize = 125): number[] {
+  const arr = Array.from({ length: bankSize }, (_, i) => i);
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.slice(0, count);
+}
 
 export default function App() {
-  const [ready, setReady] = useState<boolean>(false);
-  const [view, setView] = useState<ViewMode>('map');
-  const [activeId, setActiveId] = useState<number>(8);
-  const [stage, setStage] = useState<number>(0);
-  const [langkahAktif, setLangkahAktif] = useState<number>(0);
-
-  // Classroom 2-phase flow: Teacher Demo (Angka Cantik) -> Student Turn (Individu / Kelompok)
-  const [faseKelas, setFaseKelas] = useState<FaseKelas>('contoh-guru');
-  const [formatSiswa, setFormatSiswa] = useState<FormatSiswa>('individu');
-  const [absenMaju, setAbsenMaju] = useState<number>(() => Math.floor(Math.random() * TOTAL_ABSEN_KELAS) + 1);
-  const [kelompokMaju, setKelompokMaju] = useState<number>(1);
-
-  const [modeKelas, setModeKelas] = useState<ClassroomMode>('maju-satu');
-  const [timGiliran, setTimGiliran] = useState<'A' | 'B'>('A');
-  const [bintangBersama, setBintangBersama] = useState<number>(() => {
+  const [enteredCity, setEnteredCity] = useState(false);
+  const [identity, setIdentity] = useState<PlayerIdentity>(loadLocalIdentity);
+  const [progress, setProgress] = useState<PlayerProgress>(loadLocalProgress);
+  const [teacherEmail, setTeacherEmail] = useState<string>(() => {
     try {
-      return Number(localStorage.getItem('kota_mat_bintang') || '0');
+      return localStorage.getItem('kota3d_teacher_email') || DEFAULT_TEACHER_EMAIL;
     } catch {
-      return 0;
-    }
-  });
-  const [stickers, setStickers] = useState<number[]>(() => {
-    try {
-      const raw = localStorage.getItem('kota_mat_stickers');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
+      return DEFAULT_TEACHER_EMAIL;
     }
   });
 
-  const [dark, setDark] = useState<boolean>(false);
-  const [muted, setMuted] = useState<boolean>(() => sound.isMuted());
-  const [musicOn, setMusicOn] = useState<boolean>(() => sound.isMusicEnabled());
-  const [voiceOn, setVoiceOn] = useState<boolean>(() => voice.isEnabled());
-  const [teacherOpen, setTeacherOpen] = useState<boolean>(false);
-  const [frozen, setFrozen] = useState<boolean>(false);
-  const [topicFilter, setTopicFilter] = useState<'Semua' | QuestionTopic>('Semua');
+  // Google Auth UI state
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
 
-  // Mimo reaction state
-  const [mimoMood, setMimoMood] = useState<MimoMood>('senang');
-  const [mimoText, setMimoText] = useState<string>('');
+  // 3D Engine & Spatial State
+  const canvasHostRef = useRef<HTMLDivElement | null>(null);
+  const engineRef = useRef<Kota3DEngine | null>(null);
+  const [playerPos, setPlayerPos] = useState<{ x: number; y: number; z: number; rotY: number }>({
+    x: 0,
+    y: 0,
+    z: 34,
+    rotY: Math.PI
+  });
+  const [activeBuildingId, setActiveBuildingId] = useState<BuildingId | null>(null);
+  const [nearby, setNearby] = useState<
+    | { kind: 'building'; building: BuildingDef }
+    | { kind: 'station'; stationId: StationId; label: string }
+    | null
+  >(null);
 
-  // Question answering state
-  const [pgChoice, setPgChoice] = useState<string | null>(null);
-  const [pgkChoices, setPgkChoices] = useState<string[]>([]);
-  const [catChoices, setCatChoices] = useState<Record<string, boolean>>({});
-  const [hintLevel, setHintLevel] = useState<number>(0);
-  const [feedback, setFeedback] = useState<{ tipe: 'ok' | 'coba'; teks: string } | null>(null);
-  const [celebrating, setCelebrating] = useState<boolean>(false);
+  // Atmosphere (Weather + Time of Day)
+  const [weatherMode, setWeatherMode] = useState<'auto' | WeatherType>('auto');
+  const [liveWeather, setLiveWeather] = useState<WeatherType>('Cerah');
+  const [temperatureC, setTemperatureC] = useState<number>(29);
+  const [timeMode, setTimeMode] = useState<TimeOfDayMode>('auto');
+  const [weatherMenuOpen, setWeatherMenuOpen] = useState(false);
 
-  const activeQuestion: TkaQuestion =
-    TKA_QUESTIONS.find((q) => q.id === activeId) || TKA_QUESTIONS[7];
+  // Controls & Audio
+  const [mobileSprint, setMobileSprint] = useState(false);
+  const [showDesktopJoystick, setShowDesktopJoystick] = useState(false);
+  const [mobileFullscreen, setMobileFullscreen] = useState(false);
+  const [voiceOn, setVoiceOn] = useState(() => voice.isEnabled());
+  const [musicOn, setMusicOn] = useState(() => sound.isMusicEnabled());
 
-  const isContoh = faseKelas === 'contoh-guru';
-  const currentTeksSoal = isContoh ? activeQuestion.contohGuru.teksSoal : activeQuestion.teksSoal;
-  const currentOpsi = isContoh ? activeQuestion.contohGuru.opsi : activeQuestion.opsi;
-  const currentPernyataan = isContoh
-    ? activeQuestion.contohGuru.pernyataanKategori
-    : activeQuestion.pernyataanKategori;
-  const currentKunci = isContoh ? activeQuestion.contohGuru.kunciJawaban : activeQuestion.kunciJawaban;
-  const currentPembahasan = isContoh
-    ? activeQuestion.contohGuru.pembahasanSingkat
-    : activeQuestion.pembahasanSingkat;
+  // Modals
+  const [stationModal, setStationModal] = useState<{
+    building: BuildingDef;
+    station: StationId;
+  } | null>(null);
+  const [versusModalOpen, setVersusModalOpen] = useState(false);
+  const [avatarStudioOpen, setAvatarStudioOpen] = useState(false);
+  const [onlineModalOpen, setOnlineModalOpen] = useState(false);
+  const [sheetGuruOpen, setSheetGuruOpen] = useState(false);
 
+  // Multiplayer & Versus Duel
+  const wsRef = useRef<WebSocket | null>(null);
+  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayer[]>([]);
+  const [pendingInvite, setPendingInvite] = useState<{
+    challengerId: string;
+    challengerName: string;
+    challengerClass: string;
+    challengerSchool: string;
+  } | null>(null);
+  const [activeDuel, setActiveDuel] = useState<ActiveDuelState | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const activeBuildingRef = useRef<BuildingId | null>(null);
+  activeBuildingRef.current = activeBuildingId;
+
+  const resolvedWeather: WeatherType = weatherMode === 'auto' ? liveWeather : weatherMode;
+  const resolvedTime: ResolvedTimeOfDay = timeMode === 'auto' ? resolveAutoTime() : timeMode;
+
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg);
+    window.setTimeout(() => {
+      setToastMsg((prev) => (prev === msg ? null : prev));
+    }, 3500);
+  }, []);
+
+  // Test Firestore connection cleanly on startup
   useEffect(() => {
-    if (dark) {
-      document.documentElement.classList.add('dark');
+    testFirestoreConnection().catch(() => {});
+  }, []);
+
+  // Fetch local real-time weather using Geolocation + Open-Meteo proxy (/api/weather)
+  useEffect(() => {
+    let active = true;
+    const fetchWeather = async (lat?: number, lon?: number) => {
+      try {
+        const qs = lat !== undefined && lon !== undefined ? `?lat=${lat}&lon=${lon}` : '';
+        const res = await fetch(`/api/weather${qs}`);
+        if (!res.ok) return;
+        const json = (await res.json()) as { weather?: WeatherType; temperatureC?: number };
+        if (active && json.weather) {
+          setLiveWeather(json.weather);
+          if (typeof json.temperatureC === 'number') setTemperatureC(json.temperatureC);
+        }
+      } catch {
+        // Fallback to default Cerah
+      }
+    };
+
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+        () => fetchWeather(),
+        { timeout: 4000 }
+      );
     } else {
-      document.documentElement.classList.remove('dark');
+      fetchWeather();
     }
-  }, [dark]);
-
-  // Stop speech when leaving page
-  useEffect(() => {
     return () => {
-      sound.stopMusic();
-      voice.stop();
+      active = false;
     };
   }, []);
 
-  const handleMimoReact = useCallback((mood: MimoMood, pesan: string) => {
-    setMimoMood(mood);
-    setMimoText(pesan);
-  }, []);
-
-  const resetAnswerBox = () => {
-    setPgChoice(null);
-    setPgkChoices([]);
-    setCatChoices({});
-    setHintLevel(0);
-    setFeedback(null);
-    setCelebrating(false);
-    setLangkahAktif(0);
-  };
-
-  const handleReadyStart = (withAudio: boolean) => {
-    sound.unlock();
-    if (withAudio) {
-      sound.setMuted(false);
-      setMuted(false);
-      sound.setMusicEnabled(true);
-      setMusicOn(true);
-      voice.setEnabled(true);
-      setVoiceOn(true);
-      sound.pop();
-      sound.startMusic();
-      voice.speak(SOFT_SELL_VOICE_OVER, true);
-    } else {
-      sound.stopMusic();
-      voice.stop();
-      setMusicOn(false);
-    }
-    setReady(true);
-  };
-
-  const openQuestion = (id: number) => {
-    sound.unlock();
-    sound.click();
-    if (musicOn && !muted) sound.startMusic();
-    const q = TKA_QUESTIONS.find((item) => item.id === id);
-    if (!q) return;
-    setActiveId(id);
-    setFaseKelas('contoh-guru');
-    setStage(0);
-    resetAnswerBox();
-    setMimoMood('senang');
-    setMimoText(`Guru peragakan dulu dengan angka cantik! ${q.ceritaMimo}`);
-    setView('question');
-    if (voiceOn) {
-      voice.speak(`Soal ${q.id}, ${q.widget.namaPanggung}. ${q.ceritaMimo}`);
-    }
-  };
-
-  const switchFaseKelas = (next: FaseKelas) => {
-    sound.unlock();
-    sound.pop();
-    setFaseKelas(next);
-    resetAnswerBox();
-    if (next === 'contoh-guru') {
-      setMimoMood('senang');
-      setMimoText('Mode Peragaan Guru aktif! Gunakan angka cantik ini untuk menjelaskan konsep di depan kelas.');
-    } else {
-      setMimoMood('bersorak');
-      const siapa =
-        formatSiswa === 'individu'
-          ? `Giliran Nomor Absen ${absenMaju} maju ke depan!`
-          : `Giliran Kelompok ${kelompokMaju} maju ke depan!`;
-      setMimoText(`${siapa} Ayo selesaikan soal latihan utamanya!`);
-      if (voiceOn) {
-        voice.speak(`${siapa} ${activeQuestion.teksSoal}`);
-      }
-    }
-  };
-
-  const acakSiswaKeDepan = () => {
-    sound.unlock();
-    sound.pop();
-    if (formatSiswa === 'individu') {
-      let picked = Math.floor(Math.random() * TOTAL_ABSEN_KELAS) + 1;
-      if (picked === absenMaju) {
-        picked = (picked % TOTAL_ABSEN_KELAS) + 1;
-      }
-      setAbsenMaju(picked);
-      setMimoMood('bersorak');
-      setMimoText(`Ayo nomor absen ${picked}, silakan maju ke depan dan susun langkahnya dari nol!`);
-      if (voiceOn) voice.speak(`Ayo nomor absen ${picked}, silakan maju ke depan kelas.`);
-    } else {
-      const nextKel = (kelompokMaju % 4) + 1;
-      setKelompokMaju(nextKel);
-      setMimoMood('bersorak');
-      setMimoText(`Giliran Kelompok ${nextKel} maju bersama ke depan kelas!`);
-      if (voiceOn) voice.speak(`Giliran Kelompok ${nextKel} maju bersama ke depan.`);
-    }
-  };
-
-  const awardSticker = (qid: number) => {
-    setStickers((prev) => {
-      if (prev.includes(qid)) return prev;
-      const next = [...prev, qid];
+  // Persist local state + cloud state
+  const persistIdentityAndProgress = useCallback(
+    async (nextId: PlayerIdentity, nextProg: PlayerProgress) => {
       try {
-        localStorage.setItem('kota_mat_stickers', JSON.stringify(next));
+        localStorage.setItem('kota3d_identity', JSON.stringify(nextId));
+        localStorage.setItem('kota3d_progress', JSON.stringify(nextProg));
       } catch {
-        // ignore
+        // ignore storage errors
       }
-      return next;
-    });
-    setBintangBersama((prev) => {
-      const next = prev + 1;
-      try {
-        localStorage.setItem('kota_mat_bintang', String(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  };
+      fetch('/api/progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: nextId.uid,
+          name: nextId.name,
+          school: nextId.school,
+          className: nextId.className,
+          shirtColor: nextId.shirtColor,
+          pantsColor: nextId.pantsColor,
+          hairColor: nextId.hairColor,
+          hatStyle: nextId.hatStyle,
+          companion: nextId.companion,
+          completedQuestions: nextProg.completedQuestions,
+          completedContoh: nextProg.completedContoh,
+          completedSteps: nextProg.completedSteps,
+          chapterMastery: nextProg.chapterMastery,
+          bintangBersama: nextProg.bintangBersama,
+          versusWins: nextProg.versusWins,
+          level: nextProg.level
+        })
+      }).catch(() => {});
 
-  const goStage = useCallback(
-    (nextStage: number) => {
-      sound.unlock();
-      sound.click();
-      if (musicOn && !muted) sound.startMusic();
-      const clamped = Math.max(0, Math.min(4, nextStage));
-      setStage(clamped);
-      if (clamped === 0) {
-        setMimoMood('senang');
-        setMimoText(activeQuestion.ceritaMimo);
-      } else if (clamped === 1) {
-        setMimoMood('senang');
-        setMimoText('Ayo gerakkan panggungnya! Tidak ada benar atau salah di sini, cukup amati apa yang terjadi.');
-      } else if (clamped === 2) {
-        setMimoMood('berpikir');
-        setMimoText(activeQuestion.pertanyaanTemukan);
-        if (voiceOn) voice.speak(activeQuestion.pertanyaanTemukan);
-      } else if (clamped === 3) {
-        setLangkahAktif(0);
-        setMimoMood('senang');
-        setMimoText('Ikuti petunjuk pemandu lalu geser balok jawaban yang tepat ke setiap langkah — hati-hati ada balok pengecoh!');
-      } else if (clamped === 4) {
-        setMimoMood('berpikir');
-        setMimoText('Sekarang giliran mencoba soalnya! Baca pelan-pelan ya.');
-        if (voiceOn) voice.speak(currentTeksSoal);
+      if (auth.currentUser && nextId.isGoogleUser) {
+        saveCloudProgress(nextId, nextProg).catch(() => {});
       }
     },
-    [activeQuestion, musicOn, muted, voiceOn, currentTeksSoal]
+    []
   );
 
-  const toggleMute = useCallback(() => {
-    const next = !muted;
-    sound.setMuted(next);
-    setMuted(next);
-    if (!next) {
-      sound.unlock();
-      sound.pop();
-      if (musicOn && view === 'question') sound.startMusic();
-    }
-  }, [muted, musicOn, view]);
-
-  const toggleMusic = useCallback(() => {
-    sound.unlock();
-    const next = !musicOn;
-    sound.setMusicEnabled(next);
-    setMusicOn(next);
-    sound.click();
-  }, [musicOn]);
-
-  const toggleVoice = useCallback(() => {
-    sound.unlock();
-    const next = !voiceOn;
-    voice.setEnabled(next);
-    setVoiceOn(next);
-    sound.click();
-    if (next && view === 'question') {
-      voice.speak(currentTeksSoal, true);
-    }
-  }, [voiceOn, view, currentTeksSoal]);
-
-  const toggleFullscreen = useCallback(() => {
-    sound.click();
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-    }
+  // Sync mobileFullscreen state with native browser fullscreenchange
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) {
+        setMobileFullscreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (
-        document.activeElement?.tagName === 'INPUT' ||
-        document.activeElement?.tagName === 'TEXTAREA'
-      ) {
-        return;
+  const enterMobileFullscreen = async () => {
+    sound.click();
+    setMobileFullscreen(true);
+    try {
+      await document.documentElement.requestFullscreen?.();
+    } catch {
+      // iOS Safari or restricted iframe still gets distraction-free fullscreen HUD
+    }
+  };
+
+  const exitMobileFullscreen = async () => {
+    sound.click();
+    setMobileFullscreen(false);
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen?.();
       }
-      if (e.key.toLowerCase() === 'm') {
-        toggleMute();
-      } else if (e.key.toLowerCase() === 'f') {
-        toggleFullscreen();
-      } else if (view === 'question') {
-        if (e.key === 'ArrowRight' || e.key === ' ') {
+    } catch {
+      // ignore
+    }
+  };
+
+  // Handle Google Workspace Sign-In & Cloud Progress Merge
+  const handleGoogleLogin = async (draft: {
+    name: string;
+    school: string;
+    className: string;
+    shirtColor: string;
+    companion: CompanionId;
+  }) => {
+    setGoogleLoading(true);
+    setGoogleError(null);
+    try {
+      const { user } = await signInWithGoogleWorkspace();
+      const cloud = await loadCloudProgress(user.uid).catch(() => null);
+      const serverRes = await fetch(`/api/progress?uid=${encodeURIComponent(user.uid)}`)
+        .then((r) => (r.ok ? r.json() : { progress: null }))
+        .catch(() => ({ progress: null }));
+
+      const mergedIdentity: PlayerIdentity = {
+        ...DEFAULT_IDENTITY,
+        ...identity,
+        uid: user.uid,
+        name: cloud?.identity?.name || user.displayName || draft.name,
+        school: cloud?.identity?.school || draft.school,
+        className: cloud?.identity?.className || draft.className,
+        shirtColor: cloud?.identity?.shirtColor || draft.shirtColor,
+        pantsColor: cloud?.identity?.pantsColor || identity.pantsColor,
+        hairColor: cloud?.identity?.hairColor || identity.hairColor,
+        hatStyle: cloud?.identity?.hatStyle || identity.hatStyle,
+        companion: cloud?.identity?.companion || draft.companion,
+        isGoogleUser: true,
+        email: user.email || undefined
+      };
+
+      const cloudProg = cloud?.progress || serverRes?.progress;
+      const mergedQuestions = Array.from(
+        new Set([...(progress.completedQuestions || []), ...(cloudProg?.completedQuestions || [])])
+      );
+      const mergedProgress: PlayerProgress = {
+        ...DEFAULT_PROGRESS,
+        ...progress,
+        ...(cloudProg || {}),
+        completedQuestions: mergedQuestions,
+        chapterMastery: {
+          bilangan: Math.max(progress.chapterMastery.bilangan, cloudProg?.chapterMastery?.bilangan || 0),
+          geometri: Math.max(progress.chapterMastery.geometri, cloudProg?.chapterMastery?.geometri || 0),
+          pengukuran: Math.max(progress.chapterMastery.pengukuran, cloudProg?.chapterMastery?.pengukuran || 0),
+          data: Math.max(progress.chapterMastery.data, cloudProg?.chapterMastery?.data || 0),
+          strategi: Math.max(progress.chapterMastery.strategi, cloudProg?.chapterMastery?.strategi || 0)
+        },
+        bintangBersama: Math.max(progress.bintangBersama, cloudProg?.bintangBersama || 0),
+        versusWins: Math.max(progress.versusWins, cloudProg?.versusWins || 0),
+        level: Math.max(progress.level, cloudProg?.level || 1, 1 + Math.floor(mergedQuestions.length / 4))
+      };
+
+      setIdentity(mergedIdentity);
+      setProgress(mergedProgress);
+      await persistIdentityAndProgress(mergedIdentity, mergedProgress);
+      sound.clap();
+      setEnteredCity(true);
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : 'Gagal masuk dengan Google.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleGuestEnter = async (draft: {
+    name: string;
+    school: string;
+    className: string;
+    shirtColor: string;
+    companion: CompanionId;
+  }) => {
+    const nextId: PlayerIdentity = {
+      ...identity,
+      name: draft.name,
+      school: draft.school,
+      className: draft.className,
+      shirtColor: draft.shirtColor,
+      companion: draft.companion,
+      isGoogleUser: false
+    };
+    setIdentity(nextId);
+    await persistIdentityAndProgress(nextId, progress);
+    setEnteredCity(true);
+  };
+
+  // Mount & Manage Three.js Kota3DEngine
+  useEffect(() => {
+    if (!enteredCity || !canvasHostRef.current) return;
+
+    const engine = new Kota3DEngine(
+      canvasHostRef.current,
+      {
+        shirtColor: identity.shirtColor,
+        pantsColor: identity.pantsColor,
+        hairColor: identity.hairColor,
+        hatStyle: identity.hatStyle,
+        companion: identity.companion
+      },
+      {
+        name: identity.name,
+        className: identity.className,
+        level: progress.level,
+        progressText: `${progress.completedQuestions.length}/25 Soal`
+      },
+      {
+        onNearbyChange: (nb) => setNearby(nb),
+        onPlayerMove: (x, y, z, rotY, moving) => {
+          setPlayerPos({ x, y, z, rotY });
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'move',
+                x,
+                y,
+                z,
+                rotY,
+                moving,
+                insideBuildingId: activeBuildingRef.current || ''
+              })
+            );
+          }
+        },
+        onEnterBuilding: (bId) => {
+          setActiveBuildingId(bId);
+        },
+        onExitBuilding: () => {
+          setActiveBuildingId(null);
+        }
+      }
+    );
+
+    engineRef.current = engine;
+    for (const b of CITY_BUILDINGS) {
+      if (b.isVersus) continue;
+      const cid = b.id as ChapterId;
+      const done = b.questionIds.every((qid) => progress.completedQuestions.includes(qid));
+      engine.updateBuildingProgress(b.id, done, progress.chapterMastery[cid] || 0);
+    }
+
+    return () => {
+      engine.dispose();
+      engineRef.current = null;
+    };
+    // Intentionally mount engine once upon entering city; dynamic updates pushed via imperative methods
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enteredCity]);
+
+  // Push atmosphere updates to 3D engine
+  useEffect(() => {
+    engineRef.current?.applyAtmosphere(resolvedTime, resolvedWeather);
+  }, [resolvedTime, resolvedWeather]);
+
+  // Push avatar & progress updates to 3D engine
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.updateAppearance({
+      shirtColor: identity.shirtColor,
+      pantsColor: identity.pantsColor,
+      hairColor: identity.hairColor,
+      hatStyle: identity.hatStyle,
+      companion: identity.companion
+    });
+    engine.updateNameplate(
+      identity.name,
+      identity.className,
+      progress.level,
+      `${progress.completedQuestions.length}/25 Soal`
+    );
+    for (const b of CITY_BUILDINGS) {
+      if (b.isVersus) continue;
+      const cid = b.id as ChapterId;
+      const done = b.questionIds.every((qid) => progress.completedQuestions.includes(qid));
+      engine.updateBuildingProgress(b.id, done, progress.chapterMastery[cid] || 0);
+    }
+  }, [identity, progress]);
+
+  // Sync remote players to 3D engine
+  useEffect(() => {
+    engineRef.current?.syncRemotePlayers(onlinePlayers, identity.uid);
+  }, [onlinePlayers, identity.uid]);
+
+  // WebSocket Multiplayer + HTTP Heartbeat Fallback
+  useEffect(() => {
+    if (!enteredCity) return;
+    let closed = false;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+    const connectWs = () => {
+      if (closed) return;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({
+            type: 'join',
+            player: {
+              id: identity.uid,
+              name: identity.name,
+              school: identity.school,
+              className: identity.className,
+              shirtColor: identity.shirtColor,
+              pantsColor: identity.pantsColor,
+              hairColor: identity.hairColor,
+              hatStyle: identity.hatStyle,
+              companion: identity.companion,
+              x: playerPos.x,
+              y: playerPos.y,
+              z: playerPos.z,
+              rotY: playerPos.rotY,
+              level: progress.level,
+              completedCount: progress.completedQuestions.length,
+              insideBuildingId: activeBuildingRef.current || ''
+            }
+          })
+        );
+      };
+
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(String(ev.data)) as { type: string; [key: string]: unknown };
+          if (msg.type === 'players_snapshot') {
+            const list = (msg.players as OnlinePlayer[]) || [];
+            setOnlinePlayers(list.filter((p) => p.id !== identity.uid));
+          } else if (msg.type === 'player_joined') {
+            const p = msg.player as OnlinePlayer;
+            if (p.id === identity.uid) return;
+            setOnlinePlayers((prev) => [...prev.filter((x) => x.id !== p.id), p]);
+          } else if (msg.type === 'player_moved') {
+            const id = String(msg.id);
+            setOnlinePlayers((prev) =>
+              prev.map((p) =>
+                p.id === id
+                  ? {
+                      ...p,
+                      x: Number(msg.x ?? p.x),
+                      y: Number(msg.y ?? p.y),
+                      z: Number(msg.z ?? p.z),
+                      rotY: Number(msg.rotY ?? p.rotY),
+                      moving: Boolean(msg.moving),
+                      insideBuildingId: String(msg.insideBuildingId ?? '')
+                    }
+                  : p
+              )
+            );
+          } else if (msg.type === 'player_updated') {
+            const p = msg.player as OnlinePlayer;
+            setOnlinePlayers((prev) => prev.map((x) => (x.id === p.id ? p : x)));
+          } else if (msg.type === 'player_left') {
+            const id = String(msg.id);
+            setOnlinePlayers((prev) => prev.filter((x) => x.id !== id));
+          } else if (msg.type === 'versus_invite') {
+            sound.ding();
+            setPendingInvite({
+              challengerId: String(msg.challengerId),
+              challengerName: String(msg.challengerName),
+              challengerClass: String(msg.challengerClass),
+              challengerSchool: String(msg.challengerSchool)
+            });
+          } else if (msg.type === 'versus_declined') {
+            showToast(`${String(msg.byName || 'Teman')} belum bisa duel sekarang.`);
+          } else if (msg.type === 'versus_start') {
+            const opp = msg.opponent as { id: string; name: string; className: string };
+            setPendingInvite(null);
+            setStationModal(null);
+            setOnlineModalOpen(false);
+            setActiveDuel({
+              mode: 'pvp',
+              roomId: String(msg.roomId),
+              questionIndices: (msg.questionIndices as number[]) || pickRandomIndices(5, 125),
+              opponentName: opp.name,
+              opponentClass: opp.className,
+              opponentScore: 0,
+              opponentProgress: 0,
+              opponentFinished: false
+            });
+            setVersusModalOpen(true);
+            sound.clap();
+          } else if (msg.type === 'versus_opponent_update') {
+            setActiveDuel((prev) =>
+              prev && prev.roomId === msg.roomId
+                ? {
+                    ...prev,
+                    opponentScore: Number(msg.opponentScore ?? prev.opponentScore),
+                    opponentProgress: Number(msg.opponentProgress ?? prev.opponentProgress),
+                    opponentFinished: Boolean(msg.opponentFinished)
+                  }
+                : prev
+            );
+          } else if (msg.type === 'versus_finished') {
+            setActiveDuel((prev) =>
+              prev && prev.roomId === msg.roomId
+                ? { ...prev, winnerId: String(msg.winnerId || '') }
+                : prev
+            );
+          }
+        } catch {
+          // ignore
+        }
+      };
+
+      ws.onclose = () => {
+        if (!closed) {
+          window.setTimeout(connectWs, 3000);
+        }
+      };
+    };
+
+    connectWs();
+
+    // HTTP Heartbeat every 5s as backup sync
+    const hb = window.setInterval(() => {
+      const pos = engineRef.current?.getPlayerPosition() || playerPos;
+      fetch('/api/multiplayer/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: identity.uid,
+          name: identity.name,
+          school: identity.school,
+          className: identity.className,
+          shirtColor: identity.shirtColor,
+          pantsColor: identity.pantsColor,
+          hairColor: identity.hairColor,
+          hatStyle: identity.hatStyle,
+          companion: identity.companion,
+          x: pos.x,
+          y: pos.y,
+          z: pos.z,
+          rotY: pos.rotY,
+          moving: false,
+          level: progress.level,
+          completedCount: progress.completedQuestions.length,
+          insideBuildingId: activeBuildingRef.current || ''
+        })
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { players?: OnlinePlayer[] } | null) => {
+          if (data?.players && (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN)) {
+            setOnlinePlayers(data.players.filter((p) => p.id !== identity.uid));
+          }
+        })
+        .catch(() => {});
+    }, 5000);
+
+    return () => {
+      closed = true;
+      window.clearInterval(hb);
+      wsRef.current?.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enteredCity, identity.uid]);
+
+  // Trigger Contextual Nearby Building or Interior Station Action
+  const triggerNearbyAction = useCallback(() => {
+    if (!nearby || !engineRef.current) return;
+    sound.unlock();
+    sound.pop();
+    if (nearby.kind === 'building') {
+      const b = nearby.building;
+      if (b.isVersus) {
+        setActiveDuel(null);
+        setVersusModalOpen(true);
+      } else {
+        const cid = b.id as ChapterId;
+        engineRef.current.enterBuilding(b.id, progress.chapterMastery[cid] || 0);
+        showToast(`Masuk ke ${b.title}! Jalan ke 4 meja di dalam ruangan.`);
+      }
+    } else if (nearby.kind === 'station') {
+      if (nearby.stationId === 'keluar') {
+        engineRef.current.exitBuilding();
+      } else if (activeBuildingId) {
+        const bDef = CITY_BUILDINGS.find((b) => b.id === activeBuildingId);
+        if (bDef) {
+          setStationModal({ building: bDef, station: nearby.stationId });
+        }
+      }
+    }
+  }, [nearby, activeBuildingId, progress.chapterMastery, showToast]);
+
+  // Keyboard shortcut E / Enter for contextual interaction
+  useEffect(() => {
+    if (!enteredCity) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (stationModal || versusModalOpen || avatarStudioOpen || onlineModalOpen || sheetGuruOpen) return;
+      if (e.code === 'KeyE' || e.code === 'Enter') {
+        if (nearby) {
           e.preventDefault();
-          if (stage < 4) goStage(stage + 1);
-        } else if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          if (stage > 0) goStage(stage - 1);
+          triggerNearbyAction();
         }
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [view, stage, goStage, toggleMute, toggleFullscreen]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [
+    enteredCity,
+    nearby,
+    stationModal,
+    versusModalOpen,
+    avatarStudioOpen,
+    onlineModalOpen,
+    sheetGuruOpen,
+    triggerNearbyAction
+  ]);
 
-  const checkAnswer = () => {
-    sound.unlock();
-    const q = activeQuestion;
+  const handleCompleteQuestion = useCallback(
+    (qid: number, chapterId: ChapterId, isContoh: boolean) => {
+      setProgress((prev) => {
+        const nextContoh = isContoh
+          ? Array.from(new Set([...prev.completedContoh, qid]))
+          : prev.completedContoh;
+        const nextCompleted = !isContoh
+          ? Array.from(new Set([...prev.completedQuestions, qid]))
+          : prev.completedQuestions;
+        const incMastery = !isContoh && !prev.completedQuestions.includes(qid) ? 2 : isContoh ? 0 : 1;
+        const nextMastery = Math.min(10, (prev.chapterMastery[chapterId] || 0) + incMastery);
+        const nextBintang = prev.bintangBersama + (isContoh ? 0 : 1);
+        const nextLevel = Math.max(prev.level, 1 + Math.floor((nextCompleted.length + prev.versusWins) / 3));
 
-    if (q.bentuk === 'PG' && currentOpsi) {
-      if (!pgChoice) return;
-      if (pgChoice === currentKunci) {
-        sound.clap();
-        setCelebrating(true);
-        if (!isContoh) awardSticker(q.id);
-        const msg = `Hebat! Pilihan ${pgChoice} tepat sekali! ${currentPembahasan}`;
-        setMimoMood('bersorak');
-        setMimoText(msg);
-        setFeedback({ tipe: 'ok', teks: `Benar! ${currentPembahasan}` });
-        if (voiceOn) voice.speak(msg);
-        if (modeKelas === 'tim') setTimGiliran((t) => (t === 'A' ? 'B' : 'A'));
-      } else {
-        sound.softWrong();
-        const opt = currentOpsi.find((o) => o.id === pgChoice);
-        const msg = opt?.feedbackSalah || 'Belum tepat, yuk periksa lagi langkahnya di panggung!';
-        setMimoMood('bingung');
-        setMimoText(msg);
-        setFeedback({ tipe: 'coba', teks: msg });
-        if (voiceOn) voice.speak(msg);
+        const nextProg: PlayerProgress = {
+          ...prev,
+          completedContoh: nextContoh,
+          completedQuestions: nextCompleted,
+          chapterMastery: {
+            ...prev.chapterMastery,
+            [chapterId]: nextMastery
+          },
+          bintangBersama: nextBintang,
+          level: nextLevel
+        };
+        persistIdentityAndProgress(identity, nextProg);
+        return nextProg;
+      });
+    },
+    [identity, persistIdentityAndProgress]
+  );
+
+  const handleSubmitArchive = useCallback(
+    async (payload: {
+      chapterId: ChapterId;
+      chapterTitle: string;
+      questionLabel: string;
+      pgScore: number;
+      reflectionText: string;
+      syncedToSheet: boolean;
+    }) => {
+      const archiveId = `arc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const entry = {
+        id: archiveId,
+        uid: identity.uid,
+        studentName: identity.name,
+        school: identity.school,
+        className: identity.className,
+        chapterId: payload.chapterId,
+        chapterTitle: payload.chapterTitle,
+        questionLabel: payload.questionLabel,
+        pgScore: payload.pgScore,
+        reflectionText: payload.reflectionText,
+        syncedToSheet: payload.syncedToSheet,
+        createdAt: new Date().toISOString()
+      };
+
+      await fetch('/api/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry)
+      }).catch(() => {});
+
+      if (auth.currentUser && identity.isGoogleUser) {
+        saveCloudArchive(entry).catch(() => {});
       }
-      return;
-    }
 
-    if (q.bentuk === 'PGK' && currentOpsi) {
-      if (pgkChoices.length === 0) return;
-      const expected = [...(currentKunci as string[])].sort();
-      const got = [...pgkChoices].sort();
-      const same = expected.length === got.length && expected.every((v, i) => v === got[i]);
-      if (same) {
-        sound.clap();
-        setCelebrating(true);
-        if (!isContoh) awardSticker(q.id);
-        const msg = `Tepat sekali! Semua pernyataan yang benar berhasil dipilih! ${currentPembahasan}`;
-        setMimoMood('bersorak');
-        setMimoText(msg);
-        setFeedback({ tipe: 'ok', teks: `Benar! ${currentPembahasan}` });
-        if (voiceOn) voice.speak(msg);
-        if (modeKelas === 'tim') setTimGiliran((t) => (t === 'A' ? 'B' : 'A'));
-      } else {
-        sound.softWrong();
-        const wrongOptId = got.find((id) => !expected.includes(id));
-        const wrongOpt = currentOpsi.find((o) => o.id === wrongOptId);
-        const msg = wrongOpt?.feedbackSalah
-          ? wrongOpt.feedbackSalah
-          : 'Jumlah pilihan yang benar belum pas. Cek satu per satu tiap pernyataan ya!';
-        setMimoMood('bingung');
-        setMimoText(msg);
-        setFeedback({ tipe: 'coba', teks: msg });
-        if (voiceOn) voice.speak(msg);
-      }
-      return;
-    }
+      setProgress((prev) => {
+        const nextMastery = Math.min(10, (prev.chapterMastery[payload.chapterId] || 0) + 2);
+        const nextProg: PlayerProgress = {
+          ...prev,
+          chapterMastery: {
+            ...prev.chapterMastery,
+            [payload.chapterId]: nextMastery
+          },
+          bintangBersama: prev.bintangBersama + 1
+        };
+        persistIdentityAndProgress(identity, nextProg);
+        return nextProg;
+      });
+    },
+    [identity, persistIdentityAndProgress]
+  );
 
-    if (q.bentuk === 'PGK_KATEGORI' && currentPernyataan) {
-      const allAnswered = currentPernyataan.every((p) => typeof catChoices[p.id] === 'boolean');
-      if (!allAnswered) {
-        sound.softWrong();
-        setFeedback({ tipe: 'coba', teks: 'Pilih Benar atau Salah untuk ketiga pernyataan terlebih dahulu ya.' });
-        return;
-      }
-      const wrongStmt = currentPernyataan.find((p) => catChoices[p.id] !== p.kunci);
-      if (!wrongStmt) {
-        sound.clap();
-        setCelebrating(true);
-        if (!isContoh) awardSticker(q.id);
-        const msg = `Luar biasa! Ketiga pernyataan Benar atau Salah dijawab dengan tepat!`;
-        setMimoMood('bersorak');
-        setMimoText(msg);
-        setFeedback({ tipe: 'ok', teks: `Benar semua! ${currentPembahasan}` });
-        if (voiceOn) voice.speak(msg);
-        if (modeKelas === 'tim') setTimGiliran((t) => (t === 'A' ? 'B' : 'A'));
-      } else {
-        sound.softWrong();
-        const msg = `Pernyataan ${wrongStmt.id}: ${wrongStmt.feedbackSalah}`;
-        setMimoMood('bingung');
-        setMimoText(msg);
-        setFeedback({ tipe: 'coba', teks: msg });
-        if (voiceOn) voice.speak(msg);
-      }
-    }
-  };
-
-  const renderWidget = (q: TkaQuestion) => {
-    const props = {
-      stage,
-      modeKelas,
-      langkahAktif,
-      isContoh,
-      onMimoReact: handleMimoReact,
-      onWowTriggered: () => {
-        if (!isContoh) awardSticker(q.id);
-      }
-    };
-
-    switch (q.id) {
-      case 1: return <Widget1MesinBentuk {...props} />;
-      case 2: return <Widget2TokoMentari {...props} />;
-      case 3: return <Widget3DapurJus {...props} />;
-      case 4: return <Widget4PetakKebun {...props} />;
-      case 5: return <Widget5KalenderRenang {...props} />;
-      case 6: return <Widget6GuntingKawat {...props} />;
-      case 7: return <Widget7GudangBuku {...props} />;
-      case 8: return <Widget8Timbangan {...props} />;
-      case 9: return <Widget9PetaPerjalanan {...props} />;
-      case 10: return <Widget10JamDimas {...props} />;
-      case 11: return <Widget11KotakKubus {...props} />;
-      case 12: return <Widget12BongkarBak {...props} />;
-      case 13: return <Widget13DetektifBangun {...props} />;
-      case 14: return <Widget14KantorBerita {...props} />;
-      case 15: return <Widget15KeranjangBuah {...props} />;
-      case 16: return <Widget16LintasanSepeda {...props} />;
-      case 17: return <Widget17TangkiEmber {...props} />;
-      case 18: return <Widget18DaduPutar {...props} />;
-      case 19: return <Widget19LoyangKue {...props} />;
-      case 20: return <Widget20Tanah {...props} />;
-      case 21: return <Widget21LahanParkir {...props} />;
-      case 22: return <Widget22PekanLiterasi {...props} />;
-      case 23: return <Widget23BukuCerita {...props} />;
-      case 24: return <Widget24PackingParsel {...props} />;
-      case 25: return <Widget25Sudut {...props} />;
-      default: return null;
+  const handleSaveAppearance = (app: AvatarAppearance) => {
+    const nextId: PlayerIdentity = { ...identity, ...app };
+    setIdentity(nextId);
+    persistIdentityAndProgress(nextId, progress);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'profile_update',
+          player: {
+            ...app,
+            level: progress.level,
+            completedCount: progress.completedQuestions.length
+          }
+        })
+      );
     }
   };
 
-  const filteredQuestions =
-    topicFilter === 'Semua'
-      ? TKA_QUESTIONS
-      : TKA_QUESTIONS.filter((q) => q.elemen === topicFilter);
+  const handleChallengeOnline = (target: OnlinePlayer) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      showToast('Koneksi WebSocket sedang menyambung ulang. Coba sebentar lagi atau lawan Bot!');
+      return;
+    }
+    wsRef.current.send(
+      JSON.stringify({
+        type: 'versus_challenge',
+        targetId: target.id
+      })
+    );
+    showToast(`Undangan Duel 1v1 dikirim ke ${target.name}!`);
+  };
+
+  const handleRespondInvite = (accepted: boolean) => {
+    if (!pendingInvite || !wsRef.current) return;
+    wsRef.current.send(
+      JSON.stringify({
+        type: 'versus_response',
+        challengerId: pendingInvite.challengerId,
+        accepted
+      })
+    );
+    setPendingInvite(null);
+  };
+
+  const activeWeatherIcon = useMemo(() => {
+    if (resolvedWeather === 'Hujan') return <CloudRain className="w-4 h-4 text-sky-400" />;
+    if (resolvedWeather === 'Badai') return <CloudLightning className="w-4 h-4 text-amber-300" />;
+    if (resolvedWeather === 'Berawan') return <Cloud className="w-4 h-4 text-slate-300" />;
+    if (resolvedTime === 'malam') return <Moon className="w-4 h-4 text-indigo-300" />;
+    if (resolvedTime === 'pagi') return <Sunrise className="w-4 h-4 text-amber-300" />;
+    if (resolvedTime === 'sore') return <Sunset className="w-4 h-4 text-orange-400" />;
+    return <Sun className="w-4 h-4 text-amber-400" />;
+  }, [resolvedWeather, resolvedTime]);
+
+  if (!enteredCity) {
+    return (
+      <LoginScreen
+        initialIdentity={identity}
+        googleLoading={googleLoading}
+        googleError={googleError}
+        onGoogleLogin={handleGoogleLogin}
+        onGuestEnter={handleGuestEnter}
+      />
+    );
+  }
 
   return (
-    <div className="relative min-h-screen flex flex-col text-slate-900 dark:text-slate-100 transition-colors overflow-x-clip">
-      {/* Animated School Courtyard Background Layer + Drifting Clouds + Floating Math + Walking Kids (follows active viewport on laptop & mobile) */}
-      <div className="fixed inset-0 w-full h-[100dvh] -z-10 overflow-hidden pointer-events-none" aria-hidden="true">
-        <img
-          src="/assets/aistudio/Gemini_Generated_Image_l149tl149tl149tl_027ee563.jpg"
-          alt=""
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover object-[center_58%] sm:object-center contrast-[1.05] saturate-[1.06] animate-bg-pan"
-        />
-        {/* Light measured scrim so the SMP Kemala Bhayangkari campus courtyard stays clearly visible while keeping layout structured */}
-        <div className="absolute inset-0 bg-gradient-to-b from-sky-50/32 via-white/24 to-slate-100/38 dark:from-slate-950/70 dark:via-slate-950/64 dark:to-slate-950/76" />
+    <div className="relative h-[100dvh] w-full overflow-hidden bg-slate-950 select-none">
+      {/* Three.js 3D WebGL Canvas Host */}
+      <div ref={canvasHostRef} className="absolute inset-0 w-full h-full" />
 
-        {/* Drifting Fluffy Clouds along the visible top sky below the header */}
-        <div className="absolute top-[4.25rem] sm:top-20 left-0 w-24 sm:w-36 md:w-44 opacity-65 dark:opacity-22 animate-cloud-1">
-          <svg viewBox="0 0 180 70" className="w-full h-auto fill-white dark:fill-slate-400">
-            <path d="M35 55 H145 C160 55 170 45 170 34 C170 23 160 15 148 16 C142 6 128 2 115 8 C105 -2 85 -1 75 11 C61 7 44 14 40 27 C24 27 14 37 14 45 C14 52 23 55 35 55 Z" />
-          </svg>
-        </div>
-        <div className="absolute top-24 sm:top-28 left-0 w-20 sm:w-32 md:w-36 opacity-55 dark:opacity-18 animate-cloud-2">
-          <svg viewBox="0 0 180 70" className="w-full h-auto fill-white dark:fill-slate-400">
-            <path d="M35 55 H145 C160 55 170 45 170 34 C170 23 160 15 148 16 C142 6 128 2 115 8 C105 -2 85 -1 75 11 C61 7 44 14 40 27 C24 27 14 37 14 45 C14 52 23 55 35 55 Z" />
-          </svg>
-        </div>
-        <div className="absolute top-20 sm:top-24 left-0 w-22 sm:w-34 md:w-40 opacity-60 dark:opacity-20 animate-cloud-3">
-          <svg viewBox="0 0 180 70" className="w-full h-auto fill-white dark:fill-slate-400">
-            <path d="M35 55 H145 C160 55 170 45 170 34 C170 23 160 15 148 16 C142 6 128 2 115 8 C105 -2 85 -1 75 11 C61 7 44 14 40 27 C24 27 14 37 14 45 C14 52 23 55 35 55 Z" />
-          </svg>
-        </div>
-
-        {/* Subtle moving mathematical motifs so the stage always feels alive */}
-        {FLOATING_SYMBOLS.map((item, idx) => (
-          <span
-            key={idx}
-            style={{ top: item.top, left: item.left }}
-            className={`absolute font-display font-extrabold text-2xl sm:text-3xl md:text-5xl text-blue-700/18 dark:text-sky-300/18 select-none ${item.cls}`}
-          >
-            {item.sym}
-          </span>
-        ))}
-
-        {/* Gentle Walking School Children along the very bottom viewport edge (follows screen cleanly on HP & laptop) */}
-        <div className="absolute bottom-1.5 pb-[env(safe-area-inset-bottom)] left-0 opacity-55 sm:opacity-60 dark:opacity-38 animate-walk-ltr">
-          <svg viewBox="0 0 54 64" className="w-8 h-9 sm:w-10 sm:h-11 md:w-11 md:h-12 animate-walk-bob">
-            {/* Backpack */}
-            <rect x="8" y="25" width="12" height="18" rx="4" fill="#1D4ED8" />
-            {/* Body */}
-            <rect x="18" y="24" width="16" height="20" rx="5" fill="#F59E0B" />
-            {/* Head */}
-            <circle cx="26" cy="14" r="9" fill="#FDBA74" />
-            <path d="M17 12 C18 4, 34 4, 35 12 Z" fill="#1E293B" />
-            {/* Legs */}
-            <line x1="22" y1="44" x2="18" y2="59" stroke="#1E293B" strokeWidth="4" strokeLinecap="round" />
-            <line x1="30" y1="44" x2="35" y2="59" stroke="#1E293B" strokeWidth="4" strokeLinecap="round" />
-          </svg>
-        </div>
-        <div className="absolute bottom-1.5 pb-[env(safe-area-inset-bottom)] left-0 opacity-50 sm:opacity-55 dark:opacity-34 animate-walk-ltr-2">
-          <svg viewBox="0 0 54 64" className="w-7 h-8 sm:w-9 sm:h-10 md:w-10 md:h-11 animate-walk-bob">
-            <rect x="8" y="25" width="11" height="17" rx="4" fill="#E11D48" />
-            <rect x="18" y="24" width="15" height="20" rx="5" fill="#10B981" />
-            <circle cx="26" cy="14" r="9" fill="#FDBA74" />
-            <path d="M16 14 C16 5, 36 5, 36 14 L34 22 L18 22 Z" fill="#0F172A" />
-            <line x1="22" y1="44" x2="19" y2="58" stroke="#0F172A" strokeWidth="4" strokeLinecap="round" />
-            <line x1="29" y1="44" x2="33" y2="58" stroke="#0F172A" strokeWidth="4" strokeLinecap="round" />
-          </svg>
-        </div>
-        <div className="absolute bottom-1.5 pb-[env(safe-area-inset-bottom)] left-0 opacity-50 sm:opacity-55 dark:opacity-34 animate-walk-rtl">
-          <svg viewBox="0 0 54 64" className="w-7 h-8 sm:w-9 sm:h-10 md:w-10 md:h-11 animate-walk-bob">
-            <rect x="8" y="26" width="11" height="16" rx="4" fill="#0284C7" />
-            <rect x="18" y="24" width="15" height="20" rx="5" fill="#2563EB" />
-            <circle cx="26" cy="14" r="9" fill="#FDBA74" />
-            <path d="M17 12 C18 4, 34 4, 35 12 Z" fill="#334155" />
-            <line x1="22" y1="44" x2="17" y2="58" stroke="#1E293B" strokeWidth="4" strokeLinecap="round" />
-            <line x1="30" y1="44" x2="35" y2="58" stroke="#1E293B" strokeWidth="4" strokeLinecap="round" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Top Navigation Bar (Clean 3-zone layout with Yayasan Kemala Bhayangkari logo) */}
-      <header className="sticky top-0 z-30 bg-white/88 dark:bg-slate-900/88 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 md:px-8 h-14 sm:h-16 flex items-center justify-between gap-3 sm:gap-6">
-        <button
-          type="button"
-          onClick={() => {
-            sound.click();
-            setView('map');
-          }}
-          className="flex items-center gap-2 sm:gap-3 font-display text-base sm:text-lg md:text-xl font-extrabold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 cursor-pointer"
-        >
-          <img
-            src="/assets/aistudio/657031cc5d8eb_b91b42be.png"
-            alt="Logo Yayasan Kemala Bhayangkari"
-            referrerPolicy="no-referrer"
-            className="w-8 h-8 sm:w-10 sm:h-10 object-contain rounded-lg bg-white p-0.5 border border-slate-200"
-          />
-          <span className="hidden sm:inline">Kota Matematika</span>
-        </button>
-
-        <nav className="flex items-center gap-3 sm:gap-5 md:gap-7 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 overflow-x-auto no-scrollbar py-1">
+      {/* Mobile Fullscreen Active State: ONLY Exit Fullscreen ("Normal") + Joystick + Contextual Action Button */}
+      {mobileFullscreen && (
+        <div className="fixed top-3 right-3 z-30">
           <button
             type="button"
-            onClick={() => {
-              sound.click();
-              voice.stop();
-              setView('map');
-            }}
-            className={`hover:text-slate-950 dark:hover:text-white whitespace-nowrap shrink-0 cursor-pointer ${
-              view === 'map' ? 'text-blue-700 dark:text-blue-400 underline underline-offset-4' : ''
-            }`}
+            onClick={exitMobileFullscreen}
+            className="min-h-[42px] px-3.5 rounded-xl bg-slate-900/92 border border-white/25 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
           >
-            Peta Soal
-          </button>
-          <button
-            type="button"
-            onClick={() => openQuestion(activeId)}
-            className={`hover:text-slate-950 dark:hover:text-white whitespace-nowrap shrink-0 cursor-pointer ${
-              view === 'question' ? 'text-blue-700 dark:text-blue-400 underline underline-offset-4' : ''
-            }`}
-          >
-            Panggung Soal
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              sound.click();
-              voice.stop();
-              setView('buku');
-            }}
-            className={`hover:text-slate-950 dark:hover:text-white whitespace-nowrap shrink-0 cursor-pointer ${
-              view === 'buku' ? 'text-blue-700 dark:text-blue-400 underline underline-offset-4' : ''
-            }`}
-          >
-            Buku Saku
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              sound.click();
-              setDark((d) => !d);
-            }}
-            className="hover:text-slate-950 dark:hover:text-white whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            {dark ? 'Mode Terang' : 'Mode Gelap'}
-          </button>
-        </nav>
-
-        <div className="shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              sound.click();
-              setTeacherOpen(true);
-            }}
-            className="px-3 sm:px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Mode Guru
+            <Minimize2 className="w-4 h-4 text-amber-400" />
+            <span>Normal</span>
           </button>
         </div>
-      </header>
+      )}
 
-      {/* Classroom Audio, Voice, Music & Status Strip */}
-      <div className="bg-white/80 dark:bg-slate-900/75 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 px-4 md:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3 text-xs md:text-sm text-slate-700 dark:text-slate-300">
-          <span className="font-semibold text-slate-900 dark:text-slate-100">{KOTA_LABEL}</span>
-          <span aria-hidden="true">·</span>
-          <span>Bukan tes ujian · Belajar bersama di kelas</span>
-          <span aria-hidden="true">·</span>
-          <span className="font-mono-num font-bold text-amber-700 dark:text-amber-400">
-            Bintang Bersama: ★ {bintangBersama}
-          </span>
-          <span aria-hidden="true">·</span>
-          <span className="font-mono-num">Stiker: {stickers.length}/25</span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleVoice}
-            className={`min-h-[44px] px-3.5 rounded-xl font-bold text-xs md:text-sm border cursor-pointer ${
-              voiceOn
-                ? 'bg-emerald-50 border-emerald-400 text-emerald-950 dark:bg-emerald-950/60 dark:text-emerald-200'
-                : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'
-            }`}
-          >
-            {voiceOn ? 'Suara Baca: Aktif' : 'Suara Baca: Mati'}
-          </button>
-          <button
-            type="button"
-            onClick={toggleMusic}
-            className={`min-h-[44px] px-3.5 rounded-xl font-bold text-xs md:text-sm border cursor-pointer ${
-              musicOn && !muted
-                ? 'bg-sky-50 border-sky-400 text-sky-950 dark:bg-sky-950/60 dark:text-sky-200'
-                : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'
-            }`}
-          >
-            {musicOn ? 'Backsound: Aktif' : 'Backsound: Mati'}
-          </button>
-          <button
-            type="button"
-            onClick={toggleMute}
-            className={`min-h-[44px] px-3.5 rounded-xl font-bold text-xs md:text-sm border cursor-pointer ${
-              muted
-                ? 'bg-amber-100 border-amber-400 text-amber-950 dark:bg-amber-950/60 dark:text-amber-200'
-                : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100'
-            }`}
-          >
-            {muted ? 'Bisukan: Ya (M)' : 'Suara Efek (M)'}
-          </button>
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className="min-h-[44px] px-3.5 rounded-xl font-bold text-xs md:text-sm bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 cursor-pointer"
-          >
-            Layar Penuh (F)
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <main className="flex-1 w-full pb-14 sm:pb-16">
-        {view === 'buku' && <BukuSaku onBack={() => setView('map')} />}
-
-        {view === 'map' && (
-          <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col gap-6">
-            {/* Hero Banner with Logo & Soft-Selling Tim Guru SMP Kemala Bhayangkari 7 Porong */}
-            <div className="rounded-2xl bg-white/88 dark:bg-slate-900/90 backdrop-blur-sm border border-slate-200 dark:border-slate-800 p-5 sm:p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-              <div className="flex items-center gap-5 flex-1">
-                <img
-                  src="/assets/aistudio/657031cc5d8eb_b91b42be.png"
-                  alt="Logo Yayasan Kemala Bhayangkari"
-                  referrerPolicy="no-referrer"
-                  className="w-20 h-20 md:w-24 md:h-24 object-contain shrink-0 rounded-2xl bg-white p-1.5 border border-slate-200 shadow-xs"
-                />
-                <div className="space-y-1.5">
-                  <div className="text-xs font-semibold text-blue-700 dark:text-blue-400">
-                    Tim Guru SMP Kemala Bhayangkari 7 Porong · {KOTA_LABEL} · Kelas 6 SD
-                  </div>
-                  <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-white">
-                    Jelajahi 25 Panggung Matematika Bersama Mimo
-                  </h1>
-                  <p className="text-sm md:text-base text-slate-700 dark:text-slate-300 max-w-2xl leading-relaxed">
-                    {SOFT_SELL_COPY}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => openQuestion(1)}
-                  className="min-h-[56px] px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-base cursor-pointer active:scale-95 transition-transform whitespace-nowrap"
-                >
-                  Mulai dari Soal 1 →
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.unlock();
-                    sound.pop();
-                    if (!muted) {
-                      sound.setMusicEnabled(true);
-                      setMusicOn(true);
-                      sound.startMusic();
-                    }
-                    voice.speak(SOFT_SELL_VOICE_OVER, true);
-                  }}
-                  className="min-h-[44px] px-5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs cursor-pointer whitespace-nowrap"
-                >
-                  Putar Suara Pembuka & Musik
-                </button>
-              </div>
-            </div>
-
-            {/* Topic Filter */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-1.5 p-1 bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl">
-                {(['Semua', 'Bilangan', 'Geometri', 'Pengukuran', 'Data'] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => {
-                      sound.click();
-                      setTopicFilter(t);
-                    }}
-                    className={`min-h-[44px] px-4 rounded-lg text-sm font-semibold cursor-pointer transition-colors ${
-                      topicFilter === t
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-
-              <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white/80 dark:bg-slate-900/80 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800">
-                25 dari 25 soal memiliki panggung interaktif + Contoh Guru
-              </div>
-            </div>
-
-            {/* 25 Questions Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredQuestions.map((q) => {
-                const hasSticker = stickers.includes(q.id);
-                return (
-                  <button
-                    key={q.id}
-                    type="button"
-                    onClick={() => openQuestion(q.id)}
-                    className="text-left rounded-2xl border bg-white/88 dark:bg-slate-900/90 backdrop-blur-xs border-slate-200 dark:border-slate-800 hover:border-blue-500 p-4 transition-transform active:scale-[0.99] cursor-pointer flex flex-col justify-between gap-3 shadow-xs"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-                        <span>
-                          Soal {q.id} · {q.elemen} · {q.bentuk === 'PGK_KATEGORI' ? 'Benar/Salah' : q.bentuk}
-                        </span>
-                        {hasSticker && (
-                          <span className="font-bold text-emerald-700 dark:text-emerald-400">★ Selesai</span>
-                        )}
-                      </div>
-                      <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                        {q.widget.namaPanggung}
-                      </h2>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 line-clamp-2">
-                        {q.teksSoal}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-xs font-semibold">
-                      <span className="text-slate-500 dark:text-slate-400">{q.lokasiKota}</span>
-                      <span className="text-blue-700 dark:text-blue-400 font-bold">
-                        Peraga & Mainkan →
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {view === 'question' && (
-          <div className="max-w-6xl mx-auto px-4 py-5 flex flex-col gap-4">
-            {/* Workspace Top Strip */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.click();
-                    voice.stop();
-                    setView('map');
-                  }}
-                  className="min-h-[48px] px-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 font-semibold text-sm cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  ← Kembali ke Peta Soal
-                </button>
-                <div className="text-sm text-slate-700 dark:text-slate-200 bg-white/80 dark:bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <span className="font-bold text-slate-900 dark:text-white">
-                    Soal {activeQuestion.id}: {activeQuestion.widget.namaPanggung}
-                  </span>
-                  <span className="mx-2" aria-hidden="true">·</span>
-                  <span>{activeQuestion.elemen}</span>
-                </div>
-              </div>
-
-              {/* Classroom Interaction Modes */}
-              <div className="flex flex-wrap items-center gap-1 p-1 bg-white/85 dark:bg-slate-900/85 border border-slate-200 dark:border-slate-800 rounded-xl">
-                {(
-                  [
-                    { id: 'maju-satu', label: 'Maju Satu' },
-                    { id: 'berdua', label: 'Berdua' },
-                    { id: 'tim', label: 'Mode Tim' },
-                    { id: 'guru', label: 'Panggung Guru' }
-                  ] as const
-                ).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      sound.click();
-                      setModeKelas(m.id);
-                    }}
-                    className={`min-h-[40px] px-3 rounded-lg text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-                      modeKelas === m.id
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 2-PHASE CLASSROOM FLOW BAR: 1. Peragaan Guru (Angka Cantik) -> 2. Giliran Siswa ke Depan (Individu / Kelompok) */}
-            <div className="rounded-2xl bg-white/95 dark:bg-slate-900/95 border-2 border-blue-200 dark:border-blue-800 p-4 flex flex-wrap items-center justify-between gap-4 shadow-xs">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => switchFaseKelas('contoh-guru')}
-                  className={`min-h-[56px] px-4 rounded-xl font-bold text-sm border-2 cursor-pointer transition-all ${
-                    isContoh
-                      ? 'bg-amber-500 border-amber-600 text-slate-950 shadow-sm'
-                      : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'
-                  }`}
-                >
-                  1. Peragaan Guru (Soal Contoh · Angka Cantik)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchFaseKelas('giliran-siswa')}
-                  className={`min-h-[56px] px-4 rounded-xl font-bold text-sm border-2 cursor-pointer transition-all ${
-                    !isContoh
-                      ? 'bg-emerald-600 border-emerald-700 text-white shadow-sm'
-                      : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'
-                  }`}
-                >
-                  2. Giliran Siswa ke Depan (Soal Latihan)
-                </button>
-              </div>
-
-              {/* Individu / Kelompok Picker for Student Turn */}
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.click();
-                      setFormatSiswa('individu');
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
-                      formatSiswa === 'individu'
-                        ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300'
-                    }`}
-                  >
-                    Individu
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.click();
-                      setFormatSiswa('kelompok');
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
-                      formatSiswa === 'kelompok'
-                        ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300'
-                    }`}
-                  >
-                    Kelompok
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={acakSiswaKeDepan}
-                  className="min-h-[48px] px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs cursor-pointer"
-                >
-                  {formatSiswa === 'individu'
-                    ? `Giliran: Absen No. ${absenMaju} (Acak 1–${TOTAL_ABSEN_KELAS})`
-                    : `Giliran: Kelompok ${kelompokMaju} (Ganti)`}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.unlock();
-                    voice.speak(currentTeksSoal, true);
-                  }}
-                  className="min-h-[48px] px-4 rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs cursor-pointer"
-                >
-                  Bacakan Soal (Voice)
-                </button>
-              </div>
-            </div>
-
-            {modeKelas === 'tim' && (
-              <div className="rounded-xl bg-blue-50/95 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800 px-4 py-2.5 flex items-center justify-between text-sm">
-                <div className="font-bold text-blue-950 dark:text-blue-100">
-                  Giliran Saat Ini: Tim {timGiliran} (Tanpa skor, kumpulkan Bintang Bersama!)
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sound.pop();
-                    setTimGiliran((t) => (t === 'A' ? 'B' : 'A'));
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 text-xs font-bold cursor-pointer"
-                >
-                  Ganti Giliran Tim
-                </button>
-              </div>
-            )}
-
-            {/* 5-Stage Stepper Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-              {STAGE_NAMES.map((label, idx) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => goStage(idx)}
-                  className={`min-h-[46px] sm:min-h-[52px] rounded-xl font-bold text-xs md:text-sm px-2.5 border transition-colors cursor-pointer touch-manipulation ${
-                    idx === 4 ? 'col-span-2 sm:col-span-1' : ''
-                  } ${
-                    stage === idx
-                      ? 'bg-blue-600 border-blue-700 text-white shadow-sm'
-                      : idx < stage
-                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
-                        : 'bg-white/92 dark:bg-slate-900/92 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Mascot Mimo Speech */}
-            <MimoMascot
-              mood={mimoMood}
-              pesan={mimoText || activeQuestion.ceritaMimo}
-              onEasterEgg={() => awardSticker(activeQuestion.id)}
+      {/* Standard City HUD (Hidden during Mobile Fullscreen; NO backdrop-blur over WebGL canvas) */}
+      {!mobileFullscreen && (
+        <>
+          {/* TOP-LEFT HUD: Minimap Radar + Identity Badge */}
+          <div className="fixed top-3 left-3 z-30 flex items-start gap-2.5 max-w-[calc(100vw-160px)]">
+            <MinimapRadar
+              playerPos={playerPos}
+              onlinePlayers={onlinePlayers}
+              completedQuestions={progress.completedQuestions}
+              activeBuildingId={activeBuildingId}
+              onTeleportBuilding={(bId) => {
+                sound.pop();
+                engineRef.current?.teleportToBuilding(bId);
+                const def = CITY_BUILDINGS.find((b) => b.id === bId);
+                if (def) showToast(`Teleport ke depan ${def.title}`);
+              }}
             />
 
-            {/* Dominant Interactive Stage (active across Stage 1..4) */}
-            {stage >= 1 && renderWidget(activeQuestion)}
-
-            {/* Stage 1 (Cerita) Start CTA */}
-            {stage === 0 && (
-              <div className="rounded-2xl bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-800 p-8 text-center flex flex-col items-center gap-4">
-                <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {isContoh ? 'PERAGAAN GURU · ANGKA CANTIK' : `${KOTA_LABEL} · GILIRAN SISWA`} · {activeQuestion.modelResmi}
-                </div>
-                <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white max-w-xl">
-                  {activeQuestion.widget.namaPanggung}
-                </h2>
-                <p className="text-lg text-slate-700 dark:text-slate-200 max-w-2xl">
-                  {currentTeksSoal}
-                </p>
-                <div className="flex flex-wrap gap-3 justify-center">
-                  <button
-                    type="button"
-                    onClick={() => goStage(1)}
-                    className="min-h-[64px] px-8 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg cursor-pointer active:scale-95 transition-transform"
-                  >
-                    Mulai Mainkan & Peragakan →
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.unlock();
-                      voice.speak(currentTeksSoal, true);
-                    }}
-                    className="min-h-[64px] px-6 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-bold text-base cursor-pointer"
-                  >
-                    Bacakan Soal
-                  </button>
-                </div>
+            <div className="hidden sm:flex flex-col gap-1 rounded-2xl bg-slate-900/92 border-2 border-slate-700 px-3.5 py-2.5 text-white shadow-xl">
+              <div className="flex items-center gap-2">
+                <span className="font-display font-black text-sm text-amber-300 truncate max-w-[160px]">
+                  {identity.name}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-blue-600 text-[10px] font-black font-mono-num">
+                  Lv.{progress.level}
+                </span>
               </div>
-            )}
+              <div className="text-[11px] text-slate-300 font-semibold truncate max-w-[210px]">
+                Kelas {identity.className} · {identity.school}
+              </div>
+              <div className="flex items-center gap-2.5 text-[11px] font-mono-num font-bold pt-0.5">
+                <span className="text-emerald-400">{progress.completedQuestions.length}/25 Soal</span>
+                <span className="text-amber-400">★ {progress.bintangBersama}</span>
+                <span className="text-rose-400">Duel {progress.versusWins}×</span>
+              </div>
+            </div>
+          </div>
 
-            {/* Stage 3 (Temukan) Prompt */}
-            {stage === 2 && (
-              <div className="rounded-2xl bg-amber-50/95 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 p-5 flex flex-wrap items-center justify-between gap-4">
+          {/* TOP-RIGHT HUD: Weather/Time Pill + Secondary Action Buttons + Mobile-Only Fullscreen */}
+          <div className="fixed top-3 right-3 z-30 flex flex-col items-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {/* Mobile-Only Fullscreen Button (Hidden on lg+ desktop) */}
+              <button
+                type="button"
+                onClick={enterMobileFullscreen}
+                className="lg:hidden min-h-[40px] px-3 rounded-xl bg-amber-400 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+                title="Mode Layar Penuh HP"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>Layar Penuh</span>
+              </button>
+
+              {/* Weather & Time Toggle Pill */}
+              <button
+                type="button"
+                onClick={() => {
+                  sound.click();
+                  setWeatherMenuOpen((v) => !v);
+                }}
+                className="min-h-[40px] px-3 rounded-xl bg-slate-900/92 border border-slate-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+              >
+                {activeWeatherIcon}
+                <span className="capitalize">{resolvedWeather}</span>
+                <span className="font-mono-num text-amber-300">{temperatureC}°C</span>
+                <span className="hidden sm:inline text-slate-400 capitalize">· {resolvedTime}</span>
+              </button>
+
+              {/* Online Players Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  sound.click();
+                  setOnlineModalOpen(true);
+                }}
+                className="min-h-[40px] px-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 border border-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Online ({onlinePlayers.length})</span>
+              </button>
+
+              {/* Direct Versus Lobby Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  sound.click();
+                  setActiveDuel(null);
+                  setVersusModalOpen(true);
+                }}
+                className="min-h-[40px] px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+              >
+                <Swords className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Versus 1v1</span>
+              </button>
+
+              {/* Avatar Studio Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  sound.click();
+                  setAvatarStudioOpen(true);
+                }}
+                className="min-h-[40px] px-3 rounded-xl bg-slate-900/92 border border-slate-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+              >
+                <Palette className="w-3.5 h-3.5 text-sky-400" />
+                <span className="hidden sm:inline">Avatar</span>
+              </button>
+
+              {/* Sheet Guru Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  sound.click();
+                  setSheetGuruOpen(true);
+                }}
+                className="min-h-[40px] px-3 rounded-xl bg-slate-900/92 border border-slate-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">Sheet Guru</span>
+              </button>
+            </div>
+
+            {/* Compact Secondary Row (Audio + Touch Joystick Toggle on IFP/Desktop + Logout) */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !voiceOn;
+                  voice.setEnabled(next);
+                  setVoiceOn(next);
+                  sound.click();
+                }}
+                title="Aktifkan/Matikan Suara Baca"
+                className={`min-h-[34px] px-2.5 rounded-lg border text-[11px] font-bold flex items-center gap-1 cursor-pointer ${
+                  voiceOn
+                    ? 'bg-slate-900/92 border-emerald-500 text-emerald-300'
+                    : 'bg-slate-900/92 border-slate-700 text-slate-400'
+                }`}
+              >
+                {voiceOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                <span className="hidden md:inline">Voice</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  sound.unlock();
+                  const next = !musicOn;
+                  sound.setMusicEnabled(next);
+                  setMusicOn(next);
+                  sound.click();
+                }}
+                title="Aktifkan/Matikan Musik Latar"
+                className={`min-h-[34px] px-2.5 rounded-lg border text-[11px] font-bold flex items-center gap-1 cursor-pointer ${
+                  musicOn
+                    ? 'bg-slate-900/92 border-sky-500 text-sky-300'
+                    : 'bg-slate-900/92 border-slate-700 text-slate-400'
+                }`}
+              >
+                <Music className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Musik</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowDesktopJoystick((v) => !v)}
+                className="hidden lg:flex min-h-[34px] px-2.5 rounded-lg bg-slate-900/92 border border-slate-700 text-slate-200 text-[11px] font-bold items-center gap-1 cursor-pointer"
+                title="Tampilkan Joystick Sentuh untuk Layar IFP"
+              >
+                <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>Joystick IFP</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  sound.click();
+                  sound.stopMusic();
+                  voice.stop();
+                  if (identity.isGoogleUser) {
+                    await signOutGoogle().catch(() => {});
+                  }
+                  setEnteredCity(false);
+                }}
+                className="min-h-[34px] px-2.5 rounded-lg bg-slate-900/92 border border-slate-700 text-slate-200 hover:text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                title="Kembali ke Halaman Login"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                <span className="hidden sm:inline">Keluar</span>
+              </button>
+            </div>
+
+            {/* Weather & Time Popover Switcher */}
+            {weatherMenuOpen && (
+              <div className="w-64 rounded-2xl bg-slate-900/95 border-2 border-slate-700 p-3.5 text-white shadow-2xl space-y-3">
                 <div>
-                  <div className="text-xs font-bold text-amber-800 dark:text-amber-300">Pertanyaan Pemantik Diskusi</div>
-                  <div className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">
-                    {activeQuestion.pertanyaanTemukan}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => goStage(3)}
-                  className="min-h-[64px] px-6 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm cursor-pointer"
-                >
-                  Lihat Langkah Pengerjaan →
-                </button>
-              </div>
-            )}
-
-            {/* Stage 4 (Susun Langkah Sendiri dengan Balok Jawaban & Pengecoh) */}
-            {stage === 3 && (
-              <StepBlockChallenge
-                questionId={activeQuestion.id}
-                isContoh={isContoh}
-                langkahAktif={langkahAktif}
-                onLangkahChange={setLangkahAktif}
-                onMimoReact={handleMimoReact}
-                onProceedToAnswer={() => goStage(4)}
-              />
-            )}
-
-            {/* Stage 5 (Coba Jawab) */}
-            {stage === 4 && (
-              <div className="rounded-2xl bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-800 p-6 flex flex-col gap-5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-blue-700 dark:text-blue-400">
-                    {isContoh
-                      ? 'SOAL CONTOH GURU (ANGKA CANTIK)'
-                      : `SOAL LATIHAN ${activeQuestion.id} · ${formatSiswa === 'individu' ? `ABSEN NO. ${absenMaju}` : `KELOMPOK ${kelompokMaju}`}`}
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sound.unlock();
-                        voice.speak(currentTeksSoal, true);
-                      }}
-                      className="min-h-[44px] px-4 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-300 dark:border-blue-700 text-blue-800 dark:text-blue-200 font-bold text-xs cursor-pointer"
-                    >
-                      Bacakan Soal
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sound.pop();
-                        setHintLevel((h) => (h < 3 ? h + 1 : 0));
-                      }}
-                      className="min-h-[44px] px-4 rounded-xl bg-amber-100 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700 text-amber-950 dark:text-amber-200 font-bold text-xs cursor-pointer"
-                    >
-                      {hintLevel === 0
-                        ? 'Minta Petunjuk (Level 1)'
-                        : hintLevel < 3
-                          ? `Tambah Petunjuk (Level ${hintLevel + 1})`
-                          : 'Sembunyikan Petunjuk'}
-                    </button>
-                  </div>
-                </div>
-
-                <p className="text-lg md:text-xl font-semibold text-slate-900 dark:text-white leading-relaxed">
-                  {currentTeksSoal}
-                </p>
-
-                {hintLevel > 0 && (
-                  <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-4 space-y-1.5">
-                    {activeQuestion.petunjukBertingkat.slice(0, hintLevel).map((h, i) => (
-                      <div key={i} className="text-sm text-amber-950 dark:text-amber-200">
-                        <strong>Petunjuk {i + 1}:</strong> {h}
-                      </div>
+                  <div className="text-[11px] font-bold text-slate-400 uppercase mb-1.5">Waktu Kota 3D</div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['auto', 'pagi', 'siang', 'sore', 'malam'] as TimeOfDayMode[]).map((tm) => (
+                      <button
+                        key={tm}
+                        type="button"
+                        onClick={() => {
+                          sound.click();
+                          setTimeMode(tm);
+                        }}
+                        className={`px-2 py-1.5 rounded-lg text-xs font-bold capitalize cursor-pointer ${
+                          timeMode === tm ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {tm}
+                      </button>
                     ))}
                   </div>
-                )}
-
-                {activeQuestion.bentuk === 'PG' && currentOpsi && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {currentOpsi.map((opt) => {
-                      const selected = pgChoice === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            sound.click();
-                            setPgChoice(opt.id);
-                            setFeedback(null);
-                          }}
-                          className={`min-h-[64px] rounded-xl border-2 px-4 py-3 text-left font-semibold text-base flex items-center gap-3 cursor-pointer transition-all ${
-                            selected
-                              ? 'bg-blue-600 border-blue-700 text-white shadow-sm'
-                              : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 hover:border-blue-400'
-                          }`}
-                        >
-                          <span className="w-9 h-9 rounded-lg bg-white/20 border border-current flex items-center justify-center font-bold shrink-0">
-                            {opt.id}
-                          </span>
-                          <span>{opt.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {activeQuestion.bentuk === 'PGK' && currentOpsi && (
-                  <div className="space-y-3">
-                    {currentOpsi.map((opt) => {
-                      const checked = pgkChoices.includes(opt.id);
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            sound.click();
-                            setFeedback(null);
-                            setPgkChoices((prev) =>
-                              prev.includes(opt.id) ? prev.filter((x) => x !== opt.id) : [...prev, opt.id]
-                            );
-                          }}
-                          className={`w-full min-h-[64px] rounded-xl border-2 px-4 py-3 text-left font-semibold text-base flex items-center gap-3 cursor-pointer transition-all ${
-                            checked
-                              ? 'bg-blue-600 border-blue-700 text-white shadow-sm'
-                              : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 hover:border-blue-400'
-                          }`}
-                        >
-                          <span className="w-8 h-8 rounded-lg border-2 border-current flex items-center justify-center font-bold shrink-0">
-                            {checked ? '✓' : opt.id}
-                          </span>
-                          <span>{opt.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {activeQuestion.bentuk === 'PGK_KATEGORI' && currentPernyataan && (
-                  <div className="space-y-3">
-                    {currentPernyataan.map((stmt) => {
-                      const val = catChoices[stmt.id];
-                      return (
-                        <div
-                          key={stmt.id}
-                          className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
-                        >
-                          <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                            <span className="font-bold mr-2">{stmt.id}.</span>
-                            {stmt.teks}
-                          </div>
-                          <div className="flex gap-2 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                sound.click();
-                                setFeedback(null);
-                                setCatChoices((prev) => ({ ...prev, [stmt.id]: true }));
-                              }}
-                              className={`min-h-[56px] min-w-[100px] px-4 rounded-xl border-2 font-bold text-sm cursor-pointer ${
-                                val === true
-                                  ? 'bg-emerald-600 border-emerald-700 text-white'
-                                  : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100'
-                              }`}
-                            >
-                              Benar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                sound.click();
-                                setFeedback(null);
-                                setCatChoices((prev) => ({ ...prev, [stmt.id]: false }));
-                              }}
-                              className={`min-h-[56px] min-w-[100px] px-4 rounded-xl border-2 font-bold text-sm cursor-pointer ${
-                                val === false
-                                  ? 'bg-amber-600 border-amber-700 text-white'
-                                  : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100'
-                              }`}
-                            >
-                              Salah
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={checkAnswer}
-                    className="min-h-[64px] px-8 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-lg cursor-pointer active:scale-95 transition-transform"
-                  >
-                    Periksa Jawaban
-                  </button>
-
-                  {isContoh && (
-                    <button
-                      type="button"
-                      onClick={() => switchFaseKelas('giliran-siswa')}
-                      className="min-h-[64px] px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-base cursor-pointer"
-                    >
-                      Lanjut ke Giliran Siswa (Soal Asli) →
-                    </button>
-                  )}
                 </div>
-
-                {feedback && (
-                  <div
-                    className={`rounded-2xl border p-4 text-base font-semibold ${
-                      feedback.tipe === 'ok'
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400 text-emerald-950 dark:text-emerald-100 animate-celebrate-pop'
-                        : 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 text-amber-950 dark:text-amber-100'
-                    }`}
-                  >
-                    {feedback.tipe === 'ok' ? '✓ ' : 'Mari periksa lagi: '}
-                    {feedback.teks}
-                    {celebrating && !isContoh && (
-                      <div className="mt-2 text-sm font-bold text-emerald-800 dark:text-emerald-300">
-                        Stiker didapat: {activeQuestion.stikerNama}!
-                      </div>
-                    )}
+                <div>
+                  <div className="text-[11px] font-bold text-slate-400 uppercase mb-1.5">Cuaca Lokal</div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['auto', 'Cerah', 'Berawan', 'Hujan', 'Badai', 'Terik'] as const).map((wm) => (
+                      <button
+                        key={wm}
+                        type="button"
+                        onClick={() => {
+                          sound.click();
+                          setWeatherMode(wm);
+                        }}
+                        className={`px-2 py-1.5 rounded-lg text-xs font-bold capitalize cursor-pointer ${
+                          weatherMode === wm ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {wm}
+                      </button>
+                    ))}
                   </div>
-                )}
+                </div>
               </div>
             )}
-
-            {/* Bottom Stage Navigation */}
-            <div className="flex items-center justify-between pt-2">
-              <button
-                type="button"
-                disabled={stage === 0}
-                onClick={() => goStage(stage - 1)}
-                className="min-h-[56px] px-6 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 disabled:opacity-40 font-bold text-sm cursor-pointer"
-              >
-                ← Mundur
-              </button>
-              <div className="flex gap-2">
-                {stage < 4 ? (
-                  <button
-                    type="button"
-                    onClick={() => goStage(stage + 1)}
-                    className="min-h-[56px] px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm cursor-pointer"
-                  >
-                    Lanjut →
-                  </button>
-                ) : (
-                  activeId < 25 && (
-                    <button
-                      type="button"
-                      onClick={() => openQuestion(activeId + 1)}
-                      className="min-h-[56px] px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm cursor-pointer"
-                    >
-                      Soal Berikutnya (Soal {activeId + 1}) →
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
           </div>
-        )}
-      </main>
-
-      {teacherOpen && (
-        <TeacherPanel
-          question={view === 'question' ? activeQuestion : undefined}
-          frozen={frozen}
-          onToggleFreeze={() => setFrozen((f) => !f)}
-          onClose={() => setTeacherOpen(false)}
-        />
+        </>
       )}
 
-      {!ready && (
-        <div className="fixed inset-0 z-50 bg-slate-950/48 backdrop-blur-[1px] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="max-w-xl w-full rounded-3xl bg-white/95 dark:bg-slate-900/95 border-2 border-blue-200 dark:border-blue-800 p-6 sm:p-7 md:p-9 text-center flex flex-col items-center gap-4 sm:gap-5 shadow-2xl animate-celebrate-pop">
-            <img
-              src="/assets/aistudio/657031cc5d8eb_b91b42be.png"
-              alt="Logo Yayasan Kemala Bhayangkari"
-              referrerPolicy="no-referrer"
-              className="w-24 h-24 object-contain rounded-2xl bg-white p-2 border border-slate-200 shadow-sm"
-            />
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-blue-700 dark:text-blue-400">
-                Persembahan Tim Guru SMP Kemala Bhayangkari 7 Porong
-              </div>
-              <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white">
-                Apakah sudah siap?
-              </h1>
-            </div>
-            <p className="text-sm md:text-base text-slate-700 dark:text-slate-200 leading-relaxed">
-              “{SOFT_SELL_COPY}”
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 w-full justify-center pt-1">
-              <button
-                type="button"
-                onClick={() => handleReadyStart(true)}
-                className="min-h-[64px] px-8 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-lg cursor-pointer active:scale-95 transition-transform shadow-md"
-              >
-                Sudah! Mulai & Putar Suara Pembuka
-              </button>
-              <button
-                type="button"
-                onClick={() => handleReadyStart(false)}
-                className="min-h-[64px] px-5 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-sm cursor-pointer"
-              >
-                Masuk Tanpa Musik
-              </button>
-            </div>
-          </div>
+      {/* CENTER-TOP TOAST & DUEL INVITE BANNER */}
+      {toastMsg && !mobileFullscreen && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-xl bg-slate-900/95 border border-amber-400 text-white text-xs sm:text-sm font-bold shadow-xl pointer-events-none">
+          {toastMsg}
         </div>
       )}
 
-      {frozen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white">
-          <div className="max-w-lg space-y-4">
-            <h2 className="text-3xl font-extrabold">Layar Dibekukan oleh Guru</h2>
-            <p className="text-lg text-slate-200">
-              Ayo menghadap ke depan kelas dan berdiskusi bersama kelompokmu dulu!
-            </p>
+      {pendingInvite && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-[92vw] max-w-md rounded-2xl bg-slate-900 border-2 border-rose-500 p-4 text-white shadow-2xl space-y-3">
+          <div className="flex items-center gap-2 text-rose-400 font-black text-sm">
+            <Swords className="w-5 h-5" />
+            <span>Tantangan Duel 1v1 Masuk!</span>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-200">
+            <strong>{pendingInvite.challengerName}</strong> (Kelas {pendingInvite.challengerClass} ·{' '}
+            {pendingInvite.challengerSchool}) menantangmu berduel cepat 5 soal!
+          </p>
+          <div className="flex gap-2 justify-end">
             <button
               type="button"
-              onClick={() => {
-                sound.click();
-                setFrozen(false);
-              }}
-              className="min-h-[64px] px-8 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-lg cursor-pointer mt-4"
+              onClick={() => handleRespondInvite(false)}
+              className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-xs font-bold cursor-pointer"
             >
-              Lanjutkan Layar
+              Tolak
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRespondInvite(true)}
+              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold cursor-pointer"
+            >
+              Terima & Mulai Duel!
             </button>
           </div>
         </div>
+      )}
+
+      {/* BOTTOM-LEFT HUD: Analog Touch Joystick (Always visible on mobile/tablet OR when toggled on IFP desktop) */}
+      <div className={`fixed bottom-4 left-4 z-30 ${showDesktopJoystick ? 'block' : 'lg:hidden'}`}>
+        <TouchJoystick
+          onVectorChange={(x, y) => engineRef.current?.setJoystickVector(x, y)}
+          sprint={mobileSprint}
+          onToggleSprint={() => {
+            setMobileSprint((s) => {
+              const next = !s;
+              engineRef.current?.setMobileSprint(next);
+              return next;
+            });
+          }}
+        />
+      </div>
+
+      {/* Desktop Controls Hint Pill (bottom-left on lg+ when joystick hidden) */}
+      {!showDesktopJoystick && !mobileFullscreen && (
+        <div className="hidden lg:flex fixed bottom-4 left-4 z-30 items-center gap-2 rounded-xl bg-slate-900/90 border border-slate-700 px-3.5 py-2 text-xs text-slate-200 font-semibold shadow-lg pointer-events-none">
+          <span>WASD / Panah: Jalan</span>
+          <span className="text-slate-500">·</span>
+          <span>Shift: Lari</span>
+          <span className="text-slate-500">·</span>
+          <span>Seret Mouse: Putar Kamera 360°</span>
+          <span className="text-slate-500">·</span>
+          <span>E / Enter: Masuk & Interaksi</span>
+        </div>
+      )}
+
+      {/* BOTTOM-RIGHT HUD: Contextual Action Button + Quick Exit Inside Building */}
+      <div className="fixed bottom-4 right-4 z-30 flex flex-col items-end gap-2">
+        {activeBuildingId && !nearby && (
+          <button
+            type="button"
+            onClick={() => {
+              sound.pop();
+              engineRef.current?.exitBuilding();
+            }}
+            className="min-h-[48px] px-4 rounded-2xl bg-slate-900/92 border-2 border-white/25 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xl cursor-pointer"
+          >
+            <DoorOpen className="w-4 h-4 text-amber-400" />
+            <span>Keluar ke Kota 3D</span>
+          </button>
+        )}
+
+        {nearby && (
+          <button
+            type="button"
+            onClick={triggerNearbyAction}
+            className="min-h-[54px] px-5 rounded-2xl bg-amber-400 hover:bg-amber-300 border-2 border-white text-slate-950 font-display font-black text-sm sm:text-base flex items-center gap-2 shadow-2xl cursor-pointer active:scale-95 transition-transform"
+          >
+            <span>
+              {nearby.kind === 'building'
+                ? nearby.building.isVersus
+                  ? 'Masuk Arena Duel 1v1'
+                  : `Masuk ${nearby.building.shortTitle}`
+                : nearby.label}
+            </span>
+            <span className="hidden sm:inline px-2 py-0.5 rounded bg-slate-950/15 text-xs font-mono-num">
+              E
+            </span>
+          </button>
+        )}
+      </div>
+
+      {/* MODALS */}
+      {stationModal && (
+        <BuildingStationModal
+          building={stationModal.building}
+          initialStation={stationModal.station}
+          identity={identity}
+          progress={progress}
+          teacherEmail={teacherEmail}
+          onCompleteQuestion={handleCompleteQuestion}
+          onSubmitArchive={handleSubmitArchive}
+          onClose={() => setStationModal(null)}
+        />
+      )}
+
+      {versusModalOpen && (
+        <VersusModal
+          identity={identity}
+          onlinePlayers={onlinePlayers}
+          activeDuel={activeDuel}
+          onStartBotDuel={() => {
+            setActiveDuel({
+              mode: 'bot',
+              questionIndices: pickRandomIndices(5, 125),
+              opponentName: 'Bot Nusantara',
+              opponentClass: 'AI Kelas 6',
+              opponentScore: 0,
+              opponentProgress: 0,
+              opponentFinished: false
+            });
+          }}
+          onChallengeOnline={handleChallengeOnline}
+          onSubmitPvpAnswer={(roomId, round, points) => {
+            wsRef.current?.send(
+              JSON.stringify({
+                type: 'versus_answer',
+                roomId,
+                round,
+                points
+              })
+            );
+          }}
+          onDuelVictory={(won) => {
+            if (won) {
+              setProgress((prev) => {
+                const nextWins = prev.versusWins + 1;
+                const nextProg: PlayerProgress = {
+                  ...prev,
+                  versusWins: nextWins,
+                  bintangBersama: prev.bintangBersama + 2,
+                  level: Math.max(prev.level, 1 + Math.floor((prev.completedQuestions.length + nextWins) / 3))
+                };
+                persistIdentityAndProgress(identity, nextProg);
+                return nextProg;
+              });
+            }
+          }}
+          onClose={() => {
+            setVersusModalOpen(false);
+            setActiveDuel(null);
+          }}
+        />
+      )}
+
+      {avatarStudioOpen && (
+        <AvatarStudioModal
+          current={{
+            shirtColor: identity.shirtColor,
+            pantsColor: identity.pantsColor,
+            hairColor: identity.hairColor,
+            hatStyle: identity.hatStyle,
+            companion: identity.companion
+          }}
+          onSave={handleSaveAppearance}
+          onClose={() => setAvatarStudioOpen(false)}
+        />
+      )}
+
+      {onlineModalOpen && (
+        <OnlinePlayersModal
+          players={onlinePlayers}
+          myPos={playerPos}
+          onVisitPlayer={(p) => {
+            setOnlineModalOpen(false);
+            engineRef.current?.teleportTo(p.x + 2, p.z + 2);
+            showToast(`Berpindah ke dekat ${p.name}!`);
+          }}
+          onChallengePlayer={(p) => {
+            setOnlineModalOpen(false);
+            handleChallengeOnline(p);
+          }}
+          onClose={() => setOnlineModalOpen(false)}
+        />
+      )}
+
+      {sheetGuruOpen && (
+        <SheetGuruModal
+          teacherEmail={teacherEmail}
+          onUpdateTeacherEmail={(email) => {
+            setTeacherEmail(email);
+            try {
+              localStorage.setItem('kota3d_teacher_email', email);
+            } catch {
+              // ignore
+            }
+          }}
+          onClose={() => setSheetGuruOpen(false)}
+        />
       )}
     </div>
   );

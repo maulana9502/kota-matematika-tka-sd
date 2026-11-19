@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "UserProgress": {
+      "title": "UserProgress",
+      "description": "Student identity, avatar customization, 3D city progress, and chapter trophy counts.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "school": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "className": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "shirtColor": { "type": "string", "minLength": 4, "maxLength": 20 },
+        "pantsColor": { "type": "string", "minLength": 4, "maxLength": 20 },
+        "hairColor": { "type": "string", "minLength": 4, "maxLength": 20 },
+        "hatStyle": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "companion": {
+          "type": "string",
+          "enum": ["garuda", "robot", "kucing", "naga"]
+        },
+        "completedQuestions": { "type": "array", "description": "Solved TKA question IDs (max 25)." },
+        "completedContoh": { "type": "array", "description": "Solved teacher demo question IDs (max 25)." },
+        "completedSteps": { "type": "array", "description": "Completed step-block challenges (max 25)." },
+        "chapterMastery": { "type": "object", "description": "Per-chapter mastery count map (0-10+)." },
+        "bintangBersama": { "type": "integer" },
+        "versusWins": { "type": "integer" },
+        "level": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "name",
+        "school",
+        "className",
+        "shirtColor",
+        "companion",
+        "bintangBersama",
+        "level",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OnlinePlayer": {
+      "title": "OnlinePlayer",
+      "description": "Real-time multiplayer position and public avatar state inside the 3D city (no PII).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "school": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "className": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "shirtColor": { "type": "string", "minLength": 4, "maxLength": 20 },
+        "companion": { "type": "string", "enum": ["garuda", "robot", "kucing", "naga"] },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "rotY": { "type": "number" },
+        "level": { "type": "integer" },
+        "completedCount": { "type": "integer" },
+        "insideBuildingId": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "name",
+        "school",
+        "className",
+        "shirtColor",
+        "companion",
+        "x",
+        "y",
+        "z",
+        "rotY",
+        "level",
+        "completedCount",
+        "updatedAt"
+      ]
+    },
+    "TeacherArchiveEntry": {
+      "title": "TeacherArchiveEntry",
+      "description": "Student quiz score and written reflection archived for Sheet Guru.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "studentName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "school": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "className": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "chapterId": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "chapterTitle": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "questionLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "pgScore": { "type": "integer" },
+        "reflectionText": { "type": "string", "maxLength": 2000 },
+        "syncedToSheet": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "studentName",
+        "school",
+        "className",
+        "chapterId",
+        "chapterTitle",
+        "questionLabel",
+        "pgScore",
+        "reflectionText",
+        "syncedToSheet",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProgress" },
+      "description": "Authenticated student progress and avatar preferences."
+    },
+    "/players/{userId}": {
+      "schema": { "$ref": "#/entities/OnlinePlayer" },
+      "description": "Public online player coordinates and avatar states for 3D city presence."
+    },
+    "/archives/{archiveId}": {
+      "schema": { "$ref": "#/entities/TeacherArchiveEntry" },
+      "description": "Student reflections and chapter quiz scores for Teacher Archive (Sheet Guru)."
+    }
+  }
+}

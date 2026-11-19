@@ -1,0 +1,207 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isTeacherAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'maulana9502@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidCompanion(c) {
+      return c in ['garuda', 'robot', 'kucing', 'naga'];
+    }
+
+    function isValidIntList(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is int);
+    }
+
+    function isValidMasteryMap(m) {
+      return m is map && m.keys().hasOnly(['bilangan', 'geometri', 'pengukuran', 'data', 'strategi']);
+    }
+
+    function isValidUserProgress(data, userId) {
+      return data.keys().hasAll([
+        'uid', 'name', 'school', 'className', 'shirtColor', 'companion',
+        'bintangBersama', 'level', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'uid', 'name', 'school', 'className', 'shirtColor', 'pantsColor',
+        'hairColor', 'hatStyle', 'companion', 'completedQuestions',
+        'completedContoh', 'completedSteps', 'chapterMastery',
+        'bintangBersama', 'versusWins', 'level', 'createdAt', 'updatedAt'
+      ])
+      && data.uid is string && data.uid == request.auth.uid && data.uid == userId
+      && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+      && data.school is string && data.school.size() >= 1 && data.school.size() <= 120
+      && data.className is string && data.className.size() >= 1 && data.className.size() <= 40
+      && data.shirtColor is string && data.shirtColor.size() >= 4 && data.shirtColor.size() <= 20
+      && (!('pantsColor' in data) || (data.pantsColor is string && data.pantsColor.size() >= 4 && data.pantsColor.size() <= 20))
+      && (!('hairColor' in data) || (data.hairColor is string && data.hairColor.size() >= 4 && data.hairColor.size() <= 20))
+      && (!('hatStyle' in data) || (data.hatStyle is string && data.hatStyle.size() >= 1 && data.hatStyle.size() <= 30))
+      && data.companion is string && isValidCompanion(data.companion)
+      && (!('completedQuestions' in data) || isValidIntList(data.completedQuestions, 30))
+      && (!('completedContoh' in data) || isValidIntList(data.completedContoh, 30))
+      && (!('completedSteps' in data) || isValidIntList(data.completedSteps, 30))
+      && (!('chapterMastery' in data) || isValidMasteryMap(data.chapterMastery))
+      && data.bintangBersama is int && data.bintangBersama >= 0 && data.bintangBersama <= 10000
+      && (!('versusWins' in data) || (data.versusWins is int && data.versusWins >= 0 && data.versusWins <= 10000))
+      && data.level is int && data.level >= 1 && data.level <= 100
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidOnlinePlayer(data, userId) {
+      return data.keys().hasAll([
+        'uid', 'name', 'school', 'className', 'shirtColor', 'companion',
+        'x', 'y', 'z', 'rotY', 'level', 'completedCount', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'uid', 'name', 'school', 'className', 'shirtColor', 'companion',
+        'x', 'y', 'z', 'rotY', 'level', 'completedCount', 'insideBuildingId', 'updatedAt'
+      ])
+      && data.uid is string && data.uid == request.auth.uid && data.uid == userId
+      && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+      && data.school is string && data.school.size() >= 1 && data.school.size() <= 120
+      && data.className is string && data.className.size() >= 1 && data.className.size() <= 40
+      && data.shirtColor is string && data.shirtColor.size() >= 4 && data.shirtColor.size() <= 20
+      && data.companion is string && isValidCompanion(data.companion)
+      && data.x is number && data.x >= -200 && data.x <= 200
+      && data.y is number && data.y >= -20 && data.y <= 50
+      && data.z is number && data.z >= -200 && data.z <= 200
+      && data.rotY is number && data.rotY >= -10 && data.rotY <= 10
+      && data.level is int && data.level >= 1 && data.level <= 100
+      && data.completedCount is int && data.completedCount >= 0 && data.completedCount <= 50
+      && (!('insideBuildingId' in data) || (data.insideBuildingId is string && data.insideBuildingId.size() <= 40))
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidArchiveEntry(data) {
+      return data.keys().hasAll([
+        'uid', 'studentName', 'school', 'className', 'chapterId',
+        'chapterTitle', 'questionLabel', 'pgScore', 'reflectionText',
+        'syncedToSheet', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'uid', 'studentName', 'school', 'className', 'chapterId',
+        'chapterTitle', 'questionLabel', 'pgScore', 'reflectionText',
+        'syncedToSheet', 'createdAt'
+      ])
+      && data.uid is string && data.uid == request.auth.uid
+      && data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 100
+      && data.school is string && data.school.size() >= 1 && data.school.size() <= 120
+      && data.className is string && data.className.size() >= 1 && data.className.size() <= 40
+      && data.chapterId is string && data.chapterId.size() >= 1 && data.chapterId.size() <= 40
+      && data.chapterTitle is string && data.chapterTitle.size() >= 1 && data.chapterTitle.size() <= 120
+      && data.questionLabel is string && data.questionLabel.size() >= 1 && data.questionLabel.size() <= 120
+      && data.pgScore is int && data.pgScore >= 0 && data.pgScore <= 100
+      && data.reflectionText is string && data.reflectionText.size() <= 2000
+      && data.syncedToSheet is bool
+      && data.createdAt is timestamp;
+    }
+
+    // Connection test document (read-only ping)
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Admin bootstrap collection
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isTeacherAdmin());
+      allow write: if false;
+    }
+
+    // Student private progress
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isTeacherAdmin());
+      allow list: if isTeacherAdmin();
+      allow create: if isValidId(userId) && isVerified() && isOwner(userId)
+        && isValidUserProgress(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isVerified()
+        && isValidUserProgress(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isTeacherAdmin() || (
+            isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'school', 'className', 'shirtColor', 'pantsColor',
+              'hairColor', 'hatStyle', 'companion', 'completedQuestions',
+              'completedContoh', 'completedSteps', 'chapterMastery',
+              'bintangBersama', 'versusWins', 'level', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if false;
+    }
+
+    // Public 3D city presence (no PII)
+    match /players/{userId} {
+      allow get: if isValidId(userId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.uid is string && resource.data.level >= 1;
+      allow create: if isValidId(userId) && isVerified() && isOwner(userId)
+        && isValidOnlinePlayer(incoming(), userId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isVerified() && isOwner(userId)
+        && isValidOnlinePlayer(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'school', 'className', 'shirtColor', 'companion',
+          'x', 'y', 'z', 'rotY', 'level', 'completedCount', 'insideBuildingId', 'updatedAt'
+        ]);
+      allow delete: if isValidId(userId) && isOwner(userId);
+    }
+
+    // Teacher archives (Sheet Guru)
+    match /archives/{archiveId} {
+      allow get: if isValidId(archiveId) && isSignedIn() && (resource.data.uid == request.auth.uid || isTeacherAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isTeacherAdmin());
+      allow create: if isValidId(archiveId) && isVerified()
+        && isValidArchiveEntry(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(archiveId) && isVerified()
+        && isValidArchiveEntry(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && (
+          isTeacherAdmin() || (
+            existing().uid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['syncedToSheet', 'reflectionText', 'pgScore'])
+          )
+        );
+      allow delete: if false;
+    }
+  }
+}
