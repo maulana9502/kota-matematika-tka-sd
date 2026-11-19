@@ -20,11 +20,14 @@ import {
 import {
   auth,
   loadCloudProgress,
+  removeOnlinePlayerFirestore,
   saveCloudArchive,
   saveCloudProgress,
   signInWithGoogleBasic,
   signOutGoogle,
-  testFirestoreConnection
+  subscribeOnlinePlayersFirestore,
+  testFirestoreConnection,
+  upsertOnlinePlayerFirestore
 } from './utils/firebaseClient';
 import { DEFAULT_TEACHER_EMAIL } from './utils/googleSheets';
 import { sound, voice } from './utils/sound';
@@ -39,6 +42,7 @@ import { SheetGuruModal } from './components/game/SheetGuruModal';
 import { AdminGuruModal } from './components/game/AdminGuruModal';
 import { TeacherPanel } from './components/TeacherPanel';
 import {
+  ArrowUp,
   Cloud,
   CloudLightning,
   CloudRain,
@@ -52,6 +56,7 @@ import {
   Moon,
   Music,
   Palette,
+  RefreshCw,
   Shield,
   Sun,
   Sunrise,
@@ -145,12 +150,31 @@ function loadLocalProgress(): PlayerProgress {
   return DEFAULT_PROGRESS;
 }
 
-function resolveAutoTime(): ResolvedTimeOfDay {
-  const h = new Date().getHours();
+function getTabSessionId(): string {
+  try {
+    let tabId = sessionStorage.getItem('kota3d_tab_id');
+    if (!tabId) {
+      tabId = Math.random().toString(36).slice(2, 8);
+      sessionStorage.setItem('kota3d_tab_id', tabId);
+    }
+    return tabId;
+  } catch {
+    return Math.random().toString(36).slice(2, 8);
+  }
+}
+
+function resolveAutoTime(date: Date = new Date()): ResolvedTimeOfDay {
+  const h = date.getHours();
   if (h >= 5 && h < 10) return 'pagi';
   if (h >= 10 && h < 15) return 'siang';
   if (h >= 15 && h < 18) return 'sore';
   return 'malam';
+}
+
+function formatClock(date: Date): string {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
 }
 
 function pickRandomIndices(count = 5, bankSize = 125): number[] {
@@ -210,12 +234,15 @@ export default function App() {
     | null
   >(null);
 
-  // Atmosphere (Weather + Time of Day)
+  // Atmosphere (Weather + Real-Time Clock & Time of Day)
   const [weatherMode, setWeatherMode] = useState<'auto' | WeatherType>('auto');
   const [liveWeather, setLiveWeather] = useState<WeatherType>('Cerah');
   const [temperatureC, setTemperatureC] = useState<number>(29);
+  const [weatherRefreshing, setWeatherRefreshing] = useState(false);
   const [timeMode, setTimeMode] = useState<TimeOfDayMode>('auto');
+  const [nowTime, setNowTime] = useState<Date>(() => new Date());
   const [weatherMenuOpen, setWeatherMenuOpen] = useState(false);
+  const weatherCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
 
   // Controls & Audio
   const [mobileSprint, setMobileSprint] = useState(false);
@@ -236,7 +263,10 @@ export default function App() {
 
   // Multiplayer & Versus Duel
   const wsRef = useRef<WebSocket | null>(null);
-  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayer[]>([]);
+  const [tabSessionId] = useState<string>(() => getTabSessionId());
+  const onlineId = useMemo(() => `${identity.uid}__${tabSessionId}`, [identity.uid, tabSessionId]);
+  const [serverPlayers, setServerPlayers] = useState<OnlinePlayer[]>([]);
+  const [firestorePlayers, setFirestorePlayers] = useState<OnlinePlayer[]>([]);
   const [pendingInvite, setPendingInvite] = useState<{
     challengerId: string;
     challengerName: string;
@@ -249,12 +279,36 @@ export default function App() {
   const activeBuildingRef = useRef<BuildingId | null>(null);
   activeBuildingRef.current = activeBuildingId;
   const isSpectatorRef = useRef(isSpectator);
-  isSpectatorRef.current = isSpectator;
+  isSpectatorRef.current = userRole === 'admin' && isSpectator;
   const userRoleRef = useRef<UserRole>(userRole);
   userRoleRef.current = userRole;
+  const isMovingRef = useRef(false);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
+
+  // Merge WS/HTTP server players with Firestore cross-instance players without duplicates
+  const onlinePlayers = useMemo(() => {
+    const map = new Map<string, OnlinePlayer>();
+    for (const p of serverPlayers) {
+      if (p.id !== onlineId) {
+        map.set(p.id, p);
+      }
+    }
+    for (const fp of firestorePlayers) {
+      if (fp.id === identity.uid) continue;
+      const alreadyOnServer = Array.from(map.values()).some((sp) => sp.id.startsWith(`${fp.id}__`));
+      if (!alreadyOnServer && !map.has(fp.id)) {
+        map.set(fp.id, fp);
+      }
+    }
+    return Array.from(map.values());
+  }, [serverPlayers, firestorePlayers, onlineId, identity.uid]);
 
   const resolvedWeather: WeatherType = weatherMode === 'auto' ? liveWeather : weatherMode;
-  const resolvedTime: ResolvedTimeOfDay = timeMode === 'auto' ? resolveAutoTime() : timeMode;
+  const resolvedTime: ResolvedTimeOfDay = timeMode === 'auto' ? resolveAutoTime(nowTime) : timeMode;
+  const clockLabel = useMemo(() => formatClock(nowTime), [nowTime]);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -267,37 +321,63 @@ export default function App() {
     testFirestoreConnection().catch(() => {});
   }, []);
 
-  // Fetch local real-time weather using Geolocation + Open-Meteo proxy (/api/weather)
+  // Real-time local clock tick every 10s so Pagi/Siang/Sore/Malam updates automatically
   useEffect(() => {
-    let active = true;
+    const timer = window.setInterval(() => {
+      setNowTime(new Date());
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const refreshWeather = useCallback(async (forceGeo = false) => {
+    setWeatherRefreshing(true);
     const fetchWeather = async (lat?: number, lon?: number) => {
       try {
-        const qs = lat !== undefined && lon !== undefined ? `?lat=${lat}&lon=${lon}` : '';
+        const qs =
+          lat !== undefined && lon !== undefined
+            ? `?lat=${lat}&lon=${lon}&t=${Date.now()}`
+            : `?t=${Date.now()}`;
         const res = await fetch(`/api/weather${qs}`);
         if (!res.ok) return;
         const json = (await res.json()) as { weather?: WeatherType; temperatureC?: number };
-        if (active && json.weather) {
+        if (json.weather) {
           setLiveWeather(json.weather);
           if (typeof json.temperatureC === 'number') setTemperatureC(json.temperatureC);
         }
       } catch {
-        // Fallback to default Cerah
+        // Fallback to current weather
+      } finally {
+        setWeatherRefreshing(false);
       }
     };
 
+    if (!forceGeo && weatherCoordsRef.current) {
+      await fetchWeather(weatherCoordsRef.current.lat, weatherCoordsRef.current.lon);
+      return;
+    }
+
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+        (pos) => {
+          weatherCoordsRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          fetchWeather(pos.coords.latitude, pos.coords.longitude);
+        },
         () => fetchWeather(),
         { timeout: 4000 }
       );
     } else {
-      fetchWeather();
+      await fetchWeather();
     }
-    return () => {
-      active = false;
-    };
   }, []);
+
+  // Fetch local real-time weather on mount + refresh every 3 minutes automatically
+  useEffect(() => {
+    refreshWeather(true);
+    const interval = window.setInterval(() => {
+      refreshWeather(false);
+    }, 180000);
+    return () => window.clearInterval(interval);
+  }, [refreshWeather]);
 
   const persistIdentityAndProgress = useCallback(
     async (nextId: PlayerIdentity, nextProg: PlayerProgress) => {
@@ -489,23 +569,6 @@ export default function App() {
     setEnteredCity(true);
   };
 
-  // Enter as Spectator
-  const handleEnterSpectator = () => {
-    const specId: PlayerIdentity = {
-      ...DEFAULT_IDENTITY,
-      uid: `spec_${Math.random().toString(36).slice(2, 9)}`,
-      name: identity.name || 'Penonton Kota',
-      school: identity.school || 'SMP Kemala Bhayangkari 7 Porong',
-      className: 'Spectator',
-      isGoogleUser: false
-    };
-    setIdentity(specId);
-    setUserRole('spectator');
-    setIsSpectator(true);
-    setSpectatorFollowId(null);
-    setEnteredCity(true);
-  };
-
   // Verify Teacher Admin Password (smpbhy07#123)
   const verifyAdminPassword = async (password: string): Promise<{ ok: boolean; message?: string }> => {
     try {
@@ -568,7 +631,9 @@ export default function App() {
       },
       {
         onNearbyChange: (nb) => setNearby(nb),
+        onJump: () => sound.pop(),
         onPlayerMove: (x, y, z, rotY, moving) => {
+          isMovingRef.current = moving;
           setPlayerPos({ x, y, z, rotY });
           const ws = wsRef.current;
           if (ws && ws.readyState === WebSocket.OPEN) {
@@ -595,7 +660,7 @@ export default function App() {
     );
 
     engineRef.current = engine;
-    if (isSpectatorRef.current) {
+    if (userRoleRef.current === 'admin' && isSpectatorRef.current) {
       engine.setSpectatorMode(true, null);
     }
 
@@ -613,19 +678,28 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enteredCity]);
 
-  // Sync Spectator mode toggle to engine + network
+  // Ensure non-admin users can never remain in Spectator mode
+  useEffect(() => {
+    if (userRole !== 'admin' && isSpectator) {
+      setIsSpectator(false);
+      setSpectatorFollowId(null);
+    }
+  }, [userRole, isSpectator]);
+
+  // Sync Spectator mode toggle (Admin Guru only) to engine + network
   useEffect(() => {
     if (!enteredCity) return;
-    engineRef.current?.setSpectatorMode(isSpectator, spectatorFollowId);
+    const effectiveSpectator = userRole === 'admin' && isSpectator;
+    engineRef.current?.setSpectatorMode(effectiveSpectator, spectatorFollowId);
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
           type: 'profile_update',
-          player: { isSpectator }
+          player: { isSpectator: effectiveSpectator }
         })
       );
     }
-  }, [enteredCity, isSpectator, spectatorFollowId]);
+  }, [enteredCity, userRole, isSpectator, spectatorFollowId]);
 
   useEffect(() => {
     engineRef.current?.applyAtmosphere(resolvedTime, resolvedWeather);
@@ -656,15 +730,56 @@ export default function App() {
   }, [identity, progress]);
 
   useEffect(() => {
-    engineRef.current?.syncRemotePlayers(onlinePlayers, identity.uid);
-  }, [onlinePlayers, identity.uid]);
+    engineRef.current?.syncRemotePlayers(onlinePlayers, onlineId);
+  }, [onlinePlayers, onlineId]);
 
-  // WebSocket Multiplayer + HTTP Heartbeat + Admin Broadcast Events
+  // Dual-Layer Real-Time Multiplayer: WebSocket (/ws) + 1s HTTP Heartbeat + Firestore (/players for verified Google users)
   useEffect(() => {
     if (!enteredCity) return;
     let closed = false;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+    const buildHeartbeatPayload = () => {
+      const idn = identityRef.current;
+      const prog = progressRef.current;
+      const pos = engineRef.current?.getPlayerPosition() || playerPos;
+      return {
+        id: onlineId,
+        name: idn.name,
+        school: idn.school,
+        className: idn.className,
+        shirtColor: idn.shirtColor,
+        pantsColor: idn.pantsColor,
+        hairColor: idn.hairColor,
+        hatStyle: idn.hatStyle,
+        companion: idn.companion,
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        rotY: pos.rotY,
+        moving: isMovingRef.current,
+        level: prog.level,
+        completedCount: prog.completedQuestions.length,
+        insideBuildingId: isSpectatorRef.current ? '' : activeBuildingRef.current || '',
+        isSpectator: userRoleRef.current === 'admin' && isSpectatorRef.current
+      };
+    };
+
+    const sendHttpHeartbeat = () => {
+      fetch('/api/multiplayer/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildHeartbeatPayload())
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { players?: OnlinePlayer[] } | null) => {
+          if (data?.players && !closed) {
+            setServerPlayers(data.players.filter((p) => p.id !== onlineId));
+          }
+        })
+        .catch(() => {});
+    };
 
     const connectWs = () => {
       if (closed) return;
@@ -675,25 +790,7 @@ export default function App() {
         ws.send(
           JSON.stringify({
             type: 'join',
-            player: {
-              id: identity.uid,
-              name: identity.name,
-              school: identity.school,
-              className: identity.className,
-              shirtColor: identity.shirtColor,
-              pantsColor: identity.pantsColor,
-              hairColor: identity.hairColor,
-              hatStyle: identity.hatStyle,
-              companion: identity.companion,
-              x: playerPos.x,
-              y: playerPos.y,
-              z: playerPos.z,
-              rotY: playerPos.rotY,
-              level: progress.level,
-              completedCount: progress.completedQuestions.length,
-              insideBuildingId: activeBuildingRef.current || '',
-              isSpectator: isSpectatorRef.current
-            }
+            player: buildHeartbeatPayload()
           })
         );
       };
@@ -703,14 +800,15 @@ export default function App() {
           const msg = JSON.parse(String(ev.data)) as { type: string; [key: string]: unknown };
           if (msg.type === 'players_snapshot') {
             const list = (msg.players as OnlinePlayer[]) || [];
-            setOnlinePlayers(list.filter((p) => p.id !== identity.uid));
+            setServerPlayers(list.filter((p) => p.id !== onlineId));
           } else if (msg.type === 'player_joined') {
             const p = msg.player as OnlinePlayer;
-            if (p.id === identity.uid) return;
-            setOnlinePlayers((prev) => [...prev.filter((x) => x.id !== p.id), p]);
+            if (p.id === onlineId) return;
+            setServerPlayers((prev) => [...prev.filter((x) => x.id !== p.id), p]);
           } else if (msg.type === 'player_moved') {
             const id = String(msg.id);
-            setOnlinePlayers((prev) =>
+            if (id === onlineId) return;
+            setServerPlayers((prev) =>
               prev.map((p) =>
                 p.id === id
                   ? {
@@ -727,10 +825,11 @@ export default function App() {
             );
           } else if (msg.type === 'player_updated') {
             const p = msg.player as OnlinePlayer;
-            setOnlinePlayers((prev) => prev.map((x) => (x.id === p.id ? p : x)));
+            if (p.id === onlineId) return;
+            setServerPlayers((prev) => prev.map((x) => (x.id === p.id ? p : x)));
           } else if (msg.type === 'player_left') {
             const id = String(msg.id);
-            setOnlinePlayers((prev) => prev.filter((x) => x.id !== id));
+            setServerPlayers((prev) => prev.filter((x) => x.id !== id));
           } else if (msg.type === 'versus_invite') {
             sound.ding();
             setPendingInvite({
@@ -799,55 +898,70 @@ export default function App() {
 
       ws.onclose = () => {
         if (!closed) {
-          window.setTimeout(connectWs, 3000);
+          window.setTimeout(connectWs, 2500);
         }
       };
     };
 
     connectWs();
+    sendHttpHeartbeat();
+    const hb = window.setInterval(sendHttpHeartbeat, 1000);
 
-    const hb = window.setInterval(() => {
-      const pos = engineRef.current?.getPlayerPosition() || playerPos;
-      fetch('/api/multiplayer/heartbeat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: identity.uid,
-          name: identity.name,
-          school: identity.school,
-          className: identity.className,
-          shirtColor: identity.shirtColor,
-          pantsColor: identity.pantsColor,
-          hairColor: identity.hairColor,
-          hatStyle: identity.hatStyle,
-          companion: identity.companion,
+    // Firestore cross-pod sync for authenticated Google users
+    let unsubFirestore: () => void = () => {};
+    let fsTimer: number | null = null;
+    if (auth.currentUser && auth.currentUser.emailVerified) {
+      unsubFirestore = subscribeOnlinePlayersFirestore((list) => {
+        if (!closed) setFirestorePlayers(list);
+      });
+      const pushFirestorePos = () => {
+        if (closed || isSpectatorRef.current) return;
+        const idn = identityRef.current;
+        const prog = progressRef.current;
+        const pos = engineRef.current?.getPlayerPosition() || playerPos;
+        upsertOnlinePlayerFirestore({
+          name: idn.name,
+          school: idn.school,
+          className: idn.className,
+          shirtColor: idn.shirtColor,
+          companion: idn.companion,
           x: pos.x,
           y: pos.y,
           z: pos.z,
           rotY: pos.rotY,
-          moving: false,
-          level: progress.level,
-          completedCount: progress.completedQuestions.length,
-          insideBuildingId: isSpectatorRef.current ? '' : activeBuildingRef.current || '',
-          isSpectator: isSpectatorRef.current
-        })
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data: { players?: OnlinePlayer[] } | null) => {
-          if (data?.players && (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN)) {
-            setOnlinePlayers(data.players.filter((p) => p.id !== identity.uid));
-          }
-        })
-        .catch(() => {});
-    }, 5000);
+          level: prog.level,
+          completedCount: prog.completedQuestions.length,
+          insideBuildingId: activeBuildingRef.current || ''
+        }).catch(() => {});
+      };
+      pushFirestorePos();
+      fsTimer = window.setInterval(pushFirestorePos, 1500);
+    }
+
+    const handleBeforeUnload = () => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'leave' }));
+      }
+      removeOnlinePlayerFirestore().catch(() => {});
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       closed = true;
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       window.clearInterval(hb);
+      if (fsTimer !== null) window.clearInterval(fsTimer);
+      unsubFirestore();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'leave' }));
+      }
       wsRef.current?.close();
+      removeOnlinePlayerFirestore().catch(() => {});
+      setServerPlayers([]);
+      setFirestorePlayers([]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enteredCity, identity.uid]);
+  }, [enteredCity, onlineId]);
 
   const triggerNearbyAction = useCallback(() => {
     if (!nearby || !engineRef.current || isSpectator) return;
@@ -1106,7 +1220,6 @@ export default function App() {
         googleError={googleError}
         onGoogleLogin={handleGoogleLogin}
         onGuestEnter={handleGuestEnter}
-        onEnterSpectator={handleEnterSpectator}
         onEnterAdminGuru={handleEnterAdminFromLogin}
       />
     );
@@ -1117,18 +1230,39 @@ export default function App() {
       {/* Three.js 3D WebGL Canvas Host */}
       <div ref={canvasHostRef} className="absolute inset-0 w-full h-full" />
 
-      {/* Mobile Fullscreen Active State: ONLY Exit Fullscreen ("Normal") + Joystick + Contextual Action Button */}
+      {/* Mobile Fullscreen Active State: Keep Compact Minimap at Top-Left + Exit ("Normal") at Top-Right */}
       {mobileFullscreen && (
-        <div className="fixed top-3 right-3 z-30">
-          <button
-            type="button"
-            onClick={exitMobileFullscreen}
-            className="min-h-[42px] px-3.5 rounded-xl bg-slate-900/92 border border-white/25 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
-          >
-            <Minimize2 className="w-4 h-4 text-amber-400" />
-            <span>Normal</span>
-          </button>
-        </div>
+        <>
+          <div className="fixed top-3 left-3 z-30">
+            <MinimapRadar
+              compact
+              playerPos={playerPos}
+              onlinePlayers={nonSpectatorPlayers}
+              completedQuestions={progress.completedQuestions}
+              activeBuildingId={activeBuildingId}
+              onTeleportBuilding={(bId) => {
+                sound.pop();
+                setSpectatorFollowId(null);
+                engineRef.current?.teleportToBuilding(bId);
+                const def = CITY_BUILDINGS.find((b) => b.id === bId);
+                if (def) showToast(`Teleport ke depan ${def.title}`);
+              }}
+            />
+          </div>
+          <div className="fixed top-3 right-3 z-30">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                exitMobileFullscreen();
+              }}
+              className="min-h-[42px] px-3.5 rounded-xl bg-slate-900/92 border border-white/25 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+            >
+              <Minimize2 className="w-4 h-4 text-amber-400" />
+              <span>Normal</span>
+            </button>
+          </div>
+        </>
       )}
 
       {/* Standard City HUD (Hidden during Mobile Fullscreen; NO backdrop-blur over WebGL canvas) */}
@@ -1187,7 +1321,8 @@ export default function App() {
               {/* Weather & Time Toggle Pill */}
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.currentTarget.blur();
                   sound.click();
                   setWeatherMenuOpen((v) => !v);
                 }}
@@ -1196,13 +1331,16 @@ export default function App() {
                 {activeWeatherIcon}
                 <span className="capitalize">{resolvedWeather}</span>
                 <span className="font-mono-num text-amber-300">{temperatureC}°C</span>
-                <span className="hidden sm:inline text-slate-400 capitalize">· {resolvedTime}</span>
+                <span className="hidden sm:inline text-slate-300 font-mono-num">
+                  · {clockLabel} (<span className="capitalize">{resolvedTime}</span>)
+                </span>
               </button>
 
               {/* Online Players Button */}
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.currentTarget.blur();
                   sound.click();
                   setOnlineModalOpen(true);
                 }}
@@ -1216,7 +1354,8 @@ export default function App() {
               {!isSpectator && (
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.currentTarget.blur();
                     sound.click();
                     setActiveDuel(null);
                     setVersusModalOpen(true);
@@ -1228,24 +1367,27 @@ export default function App() {
                 </button>
               )}
 
-              {/* Spectator Mode Toggle Button */}
-              <button
-                type="button"
-                onClick={() => {
-                  sound.pop();
-                  setSpectatorFollowId(null);
-                  setIsSpectator((s) => !s);
-                }}
-                className={`min-h-[40px] px-3 rounded-xl border font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer ${
-                  isSpectator
-                    ? 'bg-sky-600 border-sky-400 text-white'
-                    : 'bg-slate-900/92 border-slate-700 text-white'
-                }`}
-                title="Mode Spectator Kamera Bebas"
-              >
-                <Eye className="w-3.5 h-3.5 text-sky-300" />
-                <span className="hidden sm:inline">{isSpectator ? 'Spectator ON' : 'Spectator'}</span>
-              </button>
+              {/* Spectator Mode Toggle Button (Admin Guru ONLY) */}
+              {userRole === 'admin' && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    sound.pop();
+                    setSpectatorFollowId(null);
+                    setIsSpectator((s) => !s);
+                  }}
+                  className={`min-h-[40px] px-3 rounded-xl border font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer ${
+                    isSpectator
+                      ? 'bg-sky-600 border-sky-400 text-white'
+                      : 'bg-slate-900/92 border-slate-700 text-white'
+                  }`}
+                  title="Mode Spectator Kamera Bebas (Khusus Admin Guru)"
+                >
+                  <Eye className="w-3.5 h-3.5 text-sky-300" />
+                  <span className="hidden sm:inline">{isSpectator ? 'Spectator ON' : 'Spectator'}</span>
+                </button>
+              )}
 
               {/* Admin Guru Button */}
               <button
@@ -1347,9 +1489,16 @@ export default function App() {
                   sound.click();
                   sound.stopMusic();
                   voice.stop();
+                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ type: 'leave' }));
+                  }
+                  removeOnlinePlayerFirestore().catch(() => {});
                   if (identity.isGoogleUser) {
                     await signOutGoogle().catch(() => {});
                   }
+                  setIsSpectator(false);
+                  setSpectatorFollowId(null);
+                  setUserRole('student');
                   setEnteredCity(false);
                 }}
                 className="min-h-[34px] px-2.5 rounded-lg bg-slate-900/92 border border-slate-700 text-slate-200 hover:text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
@@ -1363,6 +1512,10 @@ export default function App() {
             {/* Weather & Time Popover Switcher */}
             {weatherMenuOpen && (
               <div className="w-64 rounded-2xl bg-slate-900/95 border-2 border-slate-700 p-3.5 text-white shadow-2xl space-y-3">
+                <div className="flex items-center justify-between text-[11px] font-bold text-emerald-300 border-b border-slate-800 pb-2">
+                  <span>Waktu Lokal: {clockLabel}</span>
+                  <span className="capitalize text-amber-300">{resolvedTime}</span>
+                </div>
                 <div>
                   <div className="text-[11px] font-bold text-slate-400 uppercase mb-1.5">Waktu Kota 3D</div>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -1403,16 +1556,30 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+                <button
+                  type="button"
+                  disabled={weatherRefreshing}
+                  onClick={() => {
+                    sound.click();
+                    setWeatherMode('auto');
+                    setTimeMode('auto');
+                    refreshWeather(true);
+                  }}
+                  className="w-full min-h-[34px] px-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold text-sky-300 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${weatherRefreshing ? 'animate-spin' : ''}`} />
+                  <span>{weatherRefreshing ? 'Memperbarui Cuaca...' : 'Sinkron Cuaca & Jam Real-Time'}</span>
+                </button>
               </div>
             )}
           </div>
 
-          {/* Spectator Floating Control Bar (Top-Center when in Spectator mode) */}
-          {isSpectator && (
+          {/* Spectator Floating Control Bar (Top-Center when Admin Guru is in Spectator mode) */}
+          {userRole === 'admin' && isSpectator && (
             <div className="fixed top-20 left-1/2 -translate-x-1/2 z-30 rounded-2xl bg-slate-900/95 border-2 border-sky-400 px-4 py-2.5 text-white shadow-2xl flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-1.5 text-xs font-black text-sky-300">
                 <Eye className="w-4 h-4" />
-                <span>MODE SPECTATOR</span>
+                <span>MODE SPECTATOR GURU</span>
               </div>
               <select
                 value={spectatorFollowId || ''}
@@ -1519,6 +1686,12 @@ export default function App() {
           <span>WASD / Panah: {isSpectator ? 'Terbang Kamera' : 'Jalan'}</span>
           <span className="text-slate-500">·</span>
           <span>Shift: {isSpectator ? 'Cepat' : 'Lari'}</span>
+          {!isSpectator && (
+            <>
+              <span className="text-slate-500">·</span>
+              <span>Spasi: Lompat</span>
+            </>
+          )}
           <span className="text-slate-500">·</span>
           <span>Seret Mouse: Putar Kamera 360°</span>
           {!isSpectator && (
@@ -1530,13 +1703,14 @@ export default function App() {
         </div>
       )}
 
-      {/* BOTTOM-RIGHT HUD: Contextual Action Button + Quick Exit Inside Building */}
+      {/* BOTTOM-RIGHT HUD: Jump Button ("Lompat") + Contextual Action Button + Quick Exit Inside Building */}
       {!isSpectator && (
         <div className="fixed bottom-4 right-4 z-30 flex flex-col items-end gap-2">
           {activeBuildingId && !nearby && (
             <button
               type="button"
-              onClick={() => {
+              onClick={(e) => {
+                e.currentTarget.blur();
                 sound.pop();
                 engineRef.current?.exitBuilding();
               }}
@@ -1547,24 +1721,43 @@ export default function App() {
             </button>
           )}
 
-          {nearby && (
+          <div className="flex items-end gap-2">
+            {nearby && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  triggerNearbyAction();
+                }}
+                className="min-h-[54px] px-5 rounded-2xl bg-amber-400 hover:bg-amber-300 border-2 border-white text-slate-950 font-display font-black text-sm sm:text-base flex items-center gap-2 shadow-2xl cursor-pointer active:scale-95 transition-transform"
+              >
+                <span>
+                  {nearby.kind === 'building'
+                    ? nearby.building.isVersus
+                      ? 'Masuk Arena Duel 1v1'
+                      : `Masuk ${nearby.building.shortTitle}`
+                    : nearby.label}
+                </span>
+                <span className="hidden sm:inline px-2 py-0.5 rounded bg-slate-950/15 text-xs font-mono-num">
+                  E
+                </span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={triggerNearbyAction}
-              className="min-h-[54px] px-5 rounded-2xl bg-amber-400 hover:bg-amber-300 border-2 border-white text-slate-950 font-display font-black text-sm sm:text-base flex items-center gap-2 shadow-2xl cursor-pointer active:scale-95 transition-transform"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                sound.unlock();
+                engineRef.current?.jump();
+              }}
+              className="min-h-[54px] px-4 rounded-2xl bg-sky-500 hover:bg-sky-400 border-2 border-white text-slate-950 font-display font-black text-sm flex items-center gap-1.5 shadow-2xl cursor-pointer active:scale-95 transition-transform"
+              title="Lompat (Spasi di Laptop)"
             >
-              <span>
-                {nearby.kind === 'building'
-                  ? nearby.building.isVersus
-                    ? 'Masuk Arena Duel 1v1'
-                    : `Masuk ${nearby.building.shortTitle}`
-                  : nearby.label}
-              </span>
-              <span className="hidden sm:inline px-2 py-0.5 rounded bg-slate-950/15 text-xs font-mono-num">
-                E
-              </span>
+              <ArrowUp className="w-5 h-5 stroke-[2.75]" />
+              <span>Lompat</span>
             </button>
-          )}
+          </div>
         </div>
       )}
 

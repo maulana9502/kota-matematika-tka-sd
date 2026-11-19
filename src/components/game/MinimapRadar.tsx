@@ -8,6 +8,7 @@ interface MinimapRadarProps {
   onlinePlayers: OnlinePlayer[];
   completedQuestions: number[];
   activeBuildingId: BuildingId | null;
+  compact?: boolean;
   onTeleportBuilding: (id: BuildingId) => void;
 }
 
@@ -16,6 +17,7 @@ export const MinimapRadar: React.FC<MinimapRadarProps> = ({
   onlinePlayers,
   completedQuestions,
   activeBuildingId,
+  compact = false,
   onTeleportBuilding
 }) => {
   // Map world coordinates x in [-50, 50], z in [-66, 50] into percentage [6..94]
@@ -27,19 +29,23 @@ export const MinimapRadar: React.FC<MinimapRadarProps> = ({
   const deg = ((-playerPos.rotY * 180) / Math.PI) % 360;
 
   return (
-    <div className="w-36 sm:w-44 rounded-2xl bg-slate-900/92 border-2 border-slate-700 shadow-xl p-2 text-white select-none">
+    <div
+      className={`${
+        compact ? 'w-32 p-1.5' : 'w-36 sm:w-44 p-2'
+      } rounded-2xl bg-slate-900/92 border-2 border-slate-700 shadow-xl text-white select-none`}
+    >
       <div className="flex items-center justify-between text-[10px] font-bold text-slate-300 px-1 pb-1">
         <span className="flex items-center gap-1">
           <Compass className="w-3 h-3 text-amber-400" />
-          <span>PETA KOTA</span>
+          <span>MAPS</span>
         </span>
         <span className="text-emerald-400 font-mono-num">
-          {activeBuildingId ? 'DI GEDUNG' : `${Math.round(playerPos.x)},${Math.round(playerPos.z)}`}
+          {activeBuildingId ? 'GEDUNG' : `${onlinePlayers.length} Teman`}
         </span>
       </div>
 
       {/* Radar Surface */}
-      <div className="relative w-full h-28 sm:h-32 rounded-xl bg-slate-800 border border-slate-700 overflow-hidden">
+      <div className={`relative w-full ${compact ? 'h-24' : 'h-28 sm:h-32'} rounded-xl bg-slate-800 border border-slate-700 overflow-hidden`}>
         {/* Main Avenue Roads */}
         <div
           className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-3 bg-slate-700/80"

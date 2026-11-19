@@ -7,7 +7,7 @@ import {
 } from '../../types/game';
 import { KOTA_LABEL } from '../../data/tkaData';
 import { sound, voice } from '../../utils/sound';
-import { Volume2, Sparkles, Gamepad2, ShieldCheck, Eye, Shield } from 'lucide-react';
+import { Volume2, Sparkles, Gamepad2, ShieldCheck, Shield } from 'lucide-react';
 
 interface LoginScreenProps {
   initialIdentity: PlayerIdentity;
@@ -27,7 +27,6 @@ interface LoginScreenProps {
     shirtColor: string;
     companion: CompanionId;
   }) => void;
-  onEnterSpectator: () => void;
   onEnterAdminGuru: (password: string) => Promise<{ ok: boolean; message?: string }>;
 }
 
@@ -35,7 +34,7 @@ const WELCOME_HEADLINE = 'Selamat Datang di Kota Matematika 3D!';
 const SOFT_SELL_TEXT =
   'Bosan belajar matematika yang cuma gitu-gitu aja? Di sini, rumus dan hitungan berubah jadi petualangan interaktif! Karya inovasi pembelajaran digital persembahan Tim Guru SMP Kemala Bhayangkari 7 Porong — tempat di mana belajar nggak cuma soal papan tulis, tapi juga eksplorasi teknologi masa depan.';
 
-const WELCOME_VOICE_OVER = `Selamat datang di Kota Matematika 3D, persembahan Tim Guru SMP Kemala Bhayangkari 7 Porong! ${SOFT_SELL_TEXT} Silakan isi namamu untuk mulai berpetualang, masuk dengan Google, atau pilih Mode Spectator dan Admin Guru.`;
+const WELCOME_VOICE_OVER = `Selamat datang di Kota Matematika 3D, persembahan Tim Guru SMP Kemala Bhayangkari 7 Porong! ${SOFT_SELL_TEXT} Silakan isi namamu untuk mulai berpetualang, masuk dengan Google, atau masuk sebagai Admin Guru.`;
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   initialIdentity,
@@ -43,7 +42,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   googleError,
   onGoogleLogin,
   onGuestEnter,
-  onEnterSpectator,
   onEnterAdminGuru
 }) => {
   const [name, setName] = useState(initialIdentity.name || '');
@@ -266,41 +264,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </div>
           </div>
 
-          {/* Spectator & Admin Guru Quick Entry Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                sound.unlock();
-                sound.pop();
-                onEnterSpectator();
-              }}
-              className="min-h-[54px] px-4 py-3 rounded-2xl bg-sky-700/92 hover:bg-sky-600 border border-sky-400/50 text-white text-left flex items-center gap-3 cursor-pointer shadow-lg transition-transform active:scale-98"
-            >
-              <Eye className="w-6 h-6 text-sky-200 shrink-0" />
-              <div>
-                <div className="font-display font-black text-sm">Mode Spectator</div>
-                <div className="text-[11px] text-sky-100">Jelajah kamera & pantau kota 3D</div>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                sound.unlock();
-                sound.click();
-                setAdminError(null);
-                setAdminPromptOpen(true);
-              }}
-              className="min-h-[54px] px-4 py-3 rounded-2xl bg-slate-900/92 hover:bg-slate-800 border border-amber-400/60 text-white text-left flex items-center gap-3 cursor-pointer shadow-lg transition-transform active:scale-98"
-            >
-              <Shield className="w-6 h-6 text-amber-400 shrink-0" />
-              <div>
-                <div className="font-display font-black text-sm text-amber-300">Mode Admin Guru</div>
-                <div className="text-[11px] text-slate-300">Kendali kelas & pantau siswa</div>
-              </div>
-            </button>
-          </div>
+          {/* Admin Guru Entry Card (Spectator mode is exclusively inside Admin Guru) */}
+          <button
+            type="button"
+            onClick={() => {
+              sound.unlock();
+              sound.click();
+              setAdminError(null);
+              setAdminPromptOpen(true);
+            }}
+            className="w-full min-h-[54px] px-4 py-3 rounded-2xl bg-slate-900/92 hover:bg-slate-800 border border-amber-400/60 text-white text-left flex items-center gap-3 cursor-pointer shadow-lg transition-transform active:scale-98"
+          >
+            <Shield className="w-6 h-6 text-amber-400 shrink-0" />
+            <div>
+              <div className="font-display font-black text-sm text-amber-300">Mode Admin Guru (Kendali Kelas & Spectator)</div>
+              <div className="text-[11px] text-slate-300">Pantau siswa, mode spectator 3D, bekukan layar & rekap nilai</div>
+            </div>
+          </button>
         </section>
 
         {/* Right Column: Login & Identity Form */}

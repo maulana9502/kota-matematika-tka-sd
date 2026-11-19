@@ -17,6 +17,7 @@ import { buildBuildingInterior, BuildingInteriorRefs } from './interiorBuilder';
 export interface EngineCallbacks {
   onNearbyChange: (nearby: { kind: 'building'; building: BuildingDef } | { kind: 'station'; stationId: StationId; label: string } | null) => void;
   onPlayerMove: (x: number, y: number, z: number, rotY: number, moving: boolean) => void;
+  onJump?: () => void;
   onEnterBuilding?: (buildingId: BuildingId) => void;
   onExitBuilding?: () => void;
 }
@@ -54,9 +55,11 @@ export class Kota3DEngine {
   private lightningFlash = 0;
 
   // Player Physics & Camera Orbit State
-  private playerPos = new THREE.Vector3(0, 0, 34);
+  private playerPos = new THREE.Vector3((Math.random() - 0.5) * 4, 0, 33 + (Math.random() - 0.5) * 2.5);
   private savedCityPos = new THREE.Vector3(0, 0, 34);
   private playerRotY = Math.PI;
+  private playerVelY = 0;
+  private isGrounded = true;
   private camYaw = 0;
   private camPitch = 0.42;
   private camDistance = 12.5;
@@ -213,6 +216,10 @@ export class Kota3DEngine {
   private handleKeyDown = (e: KeyboardEvent) => {
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      this.jump();
+    }
     this.keys.add(e.code);
   };
 
@@ -254,6 +261,15 @@ export class Kota3DEngine {
 
   public setMobileSprint(sprint: boolean) {
     this.mobileSprint = sprint;
+  }
+
+  public jump() {
+    if (this.spectatorMode) return;
+    if (this.isGrounded) {
+      this.playerVelY = 9.6;
+      this.isGrounded = false;
+      this.callbacks.onJump?.();
+    }
   }
 
   public setSpectatorMode(enabled: boolean, followId: string | null = null) {
@@ -316,8 +332,18 @@ export class Kota3DEngine {
     const isDark = timeMode === 'malam' || timeMode === 'sore' || weather === 'Badai';
     const isRain = weather === 'Hujan' || weather === 'Badai';
 
+    if (timeMode === 'pagi') {
+      this.sunLight.position.set(36, 22, 18);
+    } else if (timeMode === 'siang') {
+      this.sunLight.position.set(16, 48, 20);
+    } else if (timeMode === 'sore') {
+      this.sunLight.position.set(-36, 16, 18);
+    } else {
+      this.sunLight.position.set(-20, 38, -24);
+    }
+
     this.sunLight.intensity =
-      timeMode === 'malam' ? 0.25 : weather === 'Terik' ? 1.75 : weather === 'Badai' ? 0.35 : weather === 'Hujan' ? 0.55 : 1.3;
+      timeMode === 'malam' ? 0.28 : weather === 'Terik' ? 1.75 : weather === 'Badai' ? 0.35 : weather === 'Hujan' ? 0.55 : 1.3;
     this.sunLight.color.setHex(timeMode === 'sore' ? 0xfdba74 : timeMode === 'malam' ? 0x93c5fd : 0xfffbeb);
     this.ambientLight.intensity = timeMode === 'malam' ? 0.35 : 0.5;
     this.hemiLight.intensity = timeMode === 'malam' ? 0.32 : 0.72;
@@ -409,6 +435,14 @@ export class Kota3DEngine {
             progressText: `${p.completedCount || 0}/25 Soal`
           }
         );
+        const beaconRing = new THREE.Mesh(
+          new THREE.RingGeometry(0.55, 0.78, 24),
+          new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide })
+        );
+        beaconRing.rotation.x = -Math.PI / 2;
+        beaconRing.position.y = 0.04;
+        rig.root.add(beaconRing);
+
         rig.root.position.set(p.x, p.y, p.z);
         rig.root.visible = !this.activeBuildingId && !p.insideBuildingId;
         this.scene.add(rig.root);
@@ -542,9 +576,20 @@ export class Kota3DEngine {
         this.playerRotY += diff * Math.min(1, dt * 12);
       }
 
+      // Vertical jump & gravity physics
+      if (!this.isGrounded || this.playerPos.y > 0) {
+        this.playerVelY -= 25 * dt;
+        this.playerPos.y += this.playerVelY * dt;
+        if (this.playerPos.y <= 0) {
+          this.playerPos.y = 0;
+          this.playerVelY = 0;
+          this.isGrounded = true;
+        }
+      }
+
       this.playerRig.root.position.copy(this.playerPos);
       this.playerRig.root.rotation.y = this.playerRotY;
-      this.playerRig.animate(dt, elapsed, moving, sprinting);
+      this.playerRig.animate(dt, elapsed, moving || !this.isGrounded, sprinting);
     }
 
     if (elapsed - this.lastNetEmit > 0.1) {
