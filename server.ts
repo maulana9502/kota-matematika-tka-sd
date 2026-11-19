@@ -131,7 +131,7 @@ function getPrunedPlayers(): OnlinePlayerState[] {
   const now = Date.now();
   const active: OnlinePlayerState[] = [];
   for (const [id, p] of onlinePlayers.entries()) {
-    if (now - p.lastSeen > 30000) {
+    if (now - p.lastSeen > 25000) {
       onlinePlayers.delete(id);
     } else {
       active.push(p);
@@ -234,6 +234,23 @@ async function startServer() {
       lastSeen: Date.now()
     };
     onlinePlayers.set(updated.id, updated);
+    if (!existing) {
+      broadcast({ type: 'player_joined', player: updated }, updated.id);
+    } else {
+      broadcast(
+        {
+          type: 'player_moved',
+          id: updated.id,
+          x: updated.x,
+          y: updated.y,
+          z: updated.z,
+          rotY: updated.rotY,
+          moving: updated.moving,
+          insideBuildingId: updated.insideBuildingId
+        },
+        updated.id
+      );
+    }
     res.json({ players: getPrunedPlayers() });
   });
 
@@ -520,6 +537,10 @@ async function startServer() {
             },
             playerId
           );
+        } else if (data.type === 'leave' && playerId) {
+          wsClients.delete(playerId);
+          onlinePlayers.delete(playerId);
+          broadcast({ type: 'player_left', id: playerId }, playerId);
         } else if (data.type === 'ping') {
           if (playerId) {
             const p = onlinePlayers.get(playerId);
@@ -534,9 +555,15 @@ async function startServer() {
 
     ws.on('close', () => {
       if (playerId) {
-        wsClients.delete(playerId);
-        onlinePlayers.delete(playerId);
-        broadcast({ type: 'player_left', id: playerId }, playerId);
+        if (wsClients.get(playerId) === ws) {
+          wsClients.delete(playerId);
+        }
+        // Mark lastSeen slightly older so HTTP heartbeat keeps player alive across quick WS reconnects,
+        // otherwise pruned naturally within ~12s if genuinely disconnected
+        const p = onlinePlayers.get(playerId);
+        if (p) {
+          p.lastSeen = Math.min(p.lastSeen, Date.now() - 13000);
+        }
       }
     });
   });

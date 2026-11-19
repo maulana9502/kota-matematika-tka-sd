@@ -14,7 +14,9 @@ import {
   getDoc,
   getDocFromServer,
   setDoc,
+  deleteDoc,
   getDocs,
+  onSnapshot,
   collection,
   query,
   where,
@@ -22,7 +24,7 @@ import {
   Firestore
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { ArchiveRow, PlayerIdentity, PlayerProgress } from '../types/game';
+import { ArchiveRow, CompanionId, OnlinePlayer, PlayerIdentity, PlayerProgress } from '../types/game';
 
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -326,3 +328,93 @@ export async function loadCloudArchives(): Promise<ArchiveRow[]> {
     handleFirestoreError(error, OperationType.LIST, path);
   }
 }
+
+export async function upsertOnlinePlayerFirestore(params: {
+  name: string;
+  school: string;
+  className: string;
+  shirtColor: string;
+  companion: CompanionId;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  level: number;
+  completedCount: number;
+  insideBuildingId: string;
+}): Promise<void> {
+  if (!auth.currentUser || !auth.currentUser.emailVerified) return;
+  const uid = auth.currentUser.uid;
+  try {
+    await setDoc(doc(db, 'players', uid), {
+      uid,
+      name: params.name.slice(0, 100) || 'Siswa',
+      school: params.school.slice(0, 120) || 'Sekolah',
+      className: params.className.slice(0, 40) || '6',
+      shirtColor: params.shirtColor.slice(0, 20) || '#2563EB',
+      companion: params.companion,
+      x: Math.max(-190, Math.min(190, Number(params.x) || 0)),
+      y: Math.max(-15, Math.min(45, Number(params.y) || 0)),
+      z: Math.max(-190, Math.min(190, Number(params.z) || 0)),
+      rotY: Math.max(-9.5, Math.min(9.5, Number(params.rotY) || 0)),
+      level: Math.max(1, Math.min(100, Math.round(params.level || 1))),
+      completedCount: Math.max(0, Math.min(50, Math.round(params.completedCount || 0))),
+      insideBuildingId: (params.insideBuildingId || '').slice(0, 40),
+      updatedAt: serverTimestamp()
+    });
+  } catch {
+    // Non-fatal fallback to WS/HTTP
+  }
+}
+
+export async function removeOnlinePlayerFirestore(): Promise<void> {
+  if (!auth.currentUser) return;
+  try {
+    await deleteDoc(doc(db, 'players', auth.currentUser.uid));
+  } catch {
+    // Ignore
+  }
+}
+
+export function subscribeOnlinePlayersFirestore(
+  onPlayers: (players: OnlinePlayer[]) => void
+): () => void {
+  if (!auth.currentUser) return () => {};
+  const q = query(collection(db, 'players'), where('level', '>=', 1));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const nowMs = Date.now();
+      const list: OnlinePlayer[] = [];
+      for (const d of snap.docs) {
+        const data = d.data();
+        const updatedMs = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : nowMs;
+        if (nowMs - updatedMs > 45000) continue;
+        list.push({
+          id: d.id,
+          name: String(data.name || 'Siswa'),
+          school: String(data.school || 'Sekolah'),
+          className: String(data.className || '6'),
+          shirtColor: String(data.shirtColor || '#2563EB'),
+          pantsColor: '#1E293B',
+          hairColor: '#1E1B18',
+          hatStyle: 'default',
+          companion: (data.companion as CompanionId) || 'garuda',
+          x: Number(data.x || 0),
+          y: Number(data.y || 0),
+          z: Number(data.z || 34),
+          rotY: Number(data.rotY || 0),
+          moving: false,
+          level: Number(data.level || 1),
+          completedCount: Number(data.completedCount || 0),
+          insideBuildingId: String(data.insideBuildingId || '')
+        });
+      }
+      onPlayers(list);
+    },
+    () => {
+      // Ignore transient snapshot errors
+    }
+  );
+}
+
