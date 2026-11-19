@@ -60,6 +60,8 @@ export class Kota3DEngine {
   private playerRotY = Math.PI;
   private playerVelY = 0;
   private isGrounded = true;
+  private jumpBufferTimer = 0;
+  private mobileJumpHeld = false;
   private camYaw = 0;
   private camPitch = 0.42;
   private camDistance = 12.5;
@@ -195,6 +197,7 @@ export class Kota3DEngine {
     window.addEventListener('resize', this.handleResize);
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('blur', this.handleWindowBlur);
 
     const dom = this.renderer.domElement;
     dom.addEventListener('pointerdown', this.handlePointerDown);
@@ -203,6 +206,11 @@ export class Kota3DEngine {
     window.addEventListener('pointercancel', this.handlePointerUp);
     dom.addEventListener('wheel', this.handleWheel, { passive: true });
   }
+
+  private handleWindowBlur = () => {
+    this.keys.clear();
+    this.mobileJumpHeld = false;
+  };
 
   private handleResize = () => {
     if (this.disposed) return;
@@ -218,12 +226,21 @@ export class Kota3DEngine {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (e.code === 'Space') {
       e.preventDefault();
+      if (document.activeElement instanceof HTMLElement && document.activeElement.tagName === 'BUTTON') {
+        document.activeElement.blur();
+      }
       this.jump();
     }
     this.keys.add(e.code);
   };
 
   private handleKeyUp = (e: KeyboardEvent) => {
+    if (e.code === 'Space') {
+      const tag = document.activeElement?.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+        e.preventDefault();
+      }
+    }
     this.keys.delete(e.code);
   };
 
@@ -263,11 +280,20 @@ export class Kota3DEngine {
     this.mobileSprint = sprint;
   }
 
+  public setJumpHeld(held: boolean) {
+    this.mobileJumpHeld = held;
+    if (held) {
+      this.jump();
+    }
+  }
+
   public jump() {
     if (this.spectatorMode) return;
+    this.jumpBufferTimer = 0.16;
     if (this.isGrounded) {
-      this.playerVelY = 9.6;
+      this.playerVelY = 11.2;
       this.isGrounded = false;
+      this.jumpBufferTimer = 0;
       this.callbacks.onJump?.();
     }
   }
@@ -576,9 +602,20 @@ export class Kota3DEngine {
         this.playerRotY += diff * Math.min(1, dt * 12);
       }
 
+      // Jump buffering & Roblox continuous hold-to-jump while walking or running
+      if (this.jumpBufferTimer > 0) {
+        this.jumpBufferTimer = Math.max(0, this.jumpBufferTimer - dt);
+      }
+      if (this.isGrounded && (this.jumpBufferTimer > 0 || this.keys.has('Space') || this.mobileJumpHeld)) {
+        this.playerVelY = 11.2;
+        this.isGrounded = false;
+        this.jumpBufferTimer = 0;
+        this.callbacks.onJump?.();
+      }
+
       // Vertical jump & gravity physics
       if (!this.isGrounded || this.playerPos.y > 0) {
-        this.playerVelY -= 25 * dt;
+        this.playerVelY -= 28 * dt;
         this.playerPos.y += this.playerVelY * dt;
         if (this.playerPos.y <= 0) {
           this.playerPos.y = 0;
@@ -589,7 +626,7 @@ export class Kota3DEngine {
 
       this.playerRig.root.position.copy(this.playerPos);
       this.playerRig.root.rotation.y = this.playerRotY;
-      this.playerRig.animate(dt, elapsed, moving || !this.isGrounded, sprinting);
+      this.playerRig.animate(dt, elapsed, moving, sprinting, !this.isGrounded);
     }
 
     if (elapsed - this.lastNetEmit > 0.1) {
@@ -599,9 +636,13 @@ export class Kota3DEngine {
 
     // 2. Smooth Remote Players
     for (const r of this.remotePlayers.values()) {
-      r.rig.root.position.lerp(r.targetPos, Math.min(1, dt * 9));
+      const distMove = Math.hypot(
+        r.targetPos.x - r.rig.root.position.x,
+        r.targetPos.z - r.rig.root.position.z
+      );
+      r.rig.root.position.lerp(r.targetPos, Math.min(1, dt * 10));
       r.rig.root.rotation.y = r.targetRotY;
-      r.rig.animate(dt, elapsed, r.moving, false);
+      r.rig.animate(dt, elapsed, r.moving || distMove > 0.06, false, r.rig.root.position.y > 0.12);
     }
 
     // 3. World & Weather Animations
@@ -720,6 +761,7 @@ export class Kota3DEngine {
     window.removeEventListener('resize', this.handleResize);
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('blur', this.handleWindowBlur);
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
     window.removeEventListener('pointercancel', this.handlePointerUp);

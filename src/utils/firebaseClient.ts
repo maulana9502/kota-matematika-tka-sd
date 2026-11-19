@@ -329,29 +329,38 @@ export async function loadCloudArchives(): Promise<ArchiveRow[]> {
   }
 }
 
-export async function upsertOnlinePlayerFirestore(params: {
-  name: string;
-  school: string;
-  className: string;
-  shirtColor: string;
-  companion: CompanionId;
-  x: number;
-  y: number;
-  z: number;
-  rotY: number;
-  level: number;
-  completedCount: number;
-  insideBuildingId: string;
-}): Promise<void> {
-  if (!auth.currentUser || !auth.currentUser.emailVerified) return;
-  const uid = auth.currentUser.uid;
+export async function upsertOnlinePlayerFirestore(
+  playerId: string,
+  params: {
+    name: string;
+    school: string;
+    className: string;
+    shirtColor: string;
+    pantsColor: string;
+    hairColor: string;
+    hatStyle: string;
+    companion: CompanionId;
+    x: number;
+    y: number;
+    z: number;
+    rotY: number;
+    level: number;
+    completedCount: number;
+    insideBuildingId: string;
+    isSpectator?: boolean;
+  }
+): Promise<void> {
+  if (!playerId) return;
   try {
-    await setDoc(doc(db, 'players', uid), {
-      uid,
-      name: params.name.slice(0, 100) || 'Siswa',
-      school: params.school.slice(0, 120) || 'Sekolah',
-      className: params.className.slice(0, 40) || '6',
-      shirtColor: params.shirtColor.slice(0, 20) || '#2563EB',
+    await setDoc(doc(db, 'players', playerId), {
+      uid: playerId,
+      name: (params.name || 'Siswa').slice(0, 100),
+      school: (params.school || 'Sekolah').slice(0, 120),
+      className: (params.className || '6').slice(0, 40),
+      shirtColor: (params.shirtColor || '#2563EB').slice(0, 20),
+      pantsColor: (params.pantsColor || '#1E293B').slice(0, 20),
+      hairColor: (params.hairColor || '#1E1B18').slice(0, 20),
+      hatStyle: (params.hatStyle || 'default').slice(0, 30),
       companion: params.companion,
       x: Math.max(-190, Math.min(190, Number(params.x) || 0)),
       y: Math.max(-15, Math.min(45, Number(params.y) || 0)),
@@ -360,6 +369,7 @@ export async function upsertOnlinePlayerFirestore(params: {
       level: Math.max(1, Math.min(100, Math.round(params.level || 1))),
       completedCount: Math.max(0, Math.min(50, Math.round(params.completedCount || 0))),
       insideBuildingId: (params.insideBuildingId || '').slice(0, 40),
+      isSpectator: Boolean(params.isSpectator),
       updatedAt: serverTimestamp()
     });
   } catch {
@@ -367,38 +377,48 @@ export async function upsertOnlinePlayerFirestore(params: {
   }
 }
 
-export async function removeOnlinePlayerFirestore(): Promise<void> {
-  if (!auth.currentUser) return;
+export async function removeOnlinePlayerFirestore(playerId: string): Promise<void> {
+  if (!playerId) return;
   try {
-    await deleteDoc(doc(db, 'players', auth.currentUser.uid));
+    await deleteDoc(doc(db, 'players', playerId));
   } catch {
     // Ignore
   }
 }
 
 export function subscribeOnlinePlayersFirestore(
+  selfPlayerId: string,
   onPlayers: (players: OnlinePlayer[]) => void
 ): () => void {
-  if (!auth.currentUser) return () => {};
   const q = query(collection(db, 'players'), where('level', '>=', 1));
   return onSnapshot(
     q,
     (snap) => {
-      const nowMs = Date.now();
+      // Derive server reference time from Firestore's own serverTimestamp (immune to client clock skew)
+      let maxServerMs = 0;
+      let selfServerMs = 0;
+      for (const d of snap.docs) {
+        const ts = d.data().updatedAt?.toMillis ? d.data().updatedAt.toMillis() : 0;
+        if (ts > maxServerMs) maxServerMs = ts;
+        if (d.id === selfPlayerId && ts > 0) selfServerMs = ts;
+      }
+      const refServerMs = selfServerMs || maxServerMs || Date.now();
+
       const list: OnlinePlayer[] = [];
       for (const d of snap.docs) {
+        if (d.id === selfPlayerId) continue;
         const data = d.data();
-        const updatedMs = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : nowMs;
-        if (nowMs - updatedMs > 45000) continue;
+        const updatedMs = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : refServerMs;
+        if (refServerMs - updatedMs > 40000) continue;
         list.push({
           id: d.id,
           name: String(data.name || 'Siswa'),
           school: String(data.school || 'Sekolah'),
           className: String(data.className || '6'),
           shirtColor: String(data.shirtColor || '#2563EB'),
-          pantsColor: '#1E293B',
-          hairColor: '#1E1B18',
-          hatStyle: 'default',
+          pantsColor: String(data.pantsColor || '#1E293B'),
+          hairColor: String(data.hairColor || '#1E1B18'),
+          hatStyle: (String(data.hatStyle || 'default') as PlayerIdentity['hatStyle']),
           companion: (data.companion as CompanionId) || 'garuda',
           x: Number(data.x || 0),
           y: Number(data.y || 0),
@@ -407,7 +427,8 @@ export function subscribeOnlinePlayersFirestore(
           moving: false,
           level: Number(data.level || 1),
           completedCount: Number(data.completedCount || 0),
-          insideBuildingId: String(data.insideBuildingId || '')
+          insideBuildingId: String(data.insideBuildingId || ''),
+          isSpectator: Boolean(data.isSpectator)
         });
       }
       onPlayers(list);
@@ -417,4 +438,5 @@ export function subscribeOnlinePlayersFirestore(
     }
   );
 }
+
 

@@ -288,7 +288,7 @@ export default function App() {
   const progressRef = useRef(progress);
   progressRef.current = progress;
 
-  // Merge WS/HTTP server players with Firestore cross-instance players without duplicates
+  // Merge WS/HTTP server players with Firestore cross-URL/cross-pod players without duplicates
   const onlinePlayers = useMemo(() => {
     const map = new Map<string, OnlinePlayer>();
     for (const p of serverPlayers) {
@@ -297,14 +297,12 @@ export default function App() {
       }
     }
     for (const fp of firestorePlayers) {
-      if (fp.id === identity.uid) continue;
-      const alreadyOnServer = Array.from(map.values()).some((sp) => sp.id.startsWith(`${fp.id}__`));
-      if (!alreadyOnServer && !map.has(fp.id)) {
+      if (fp.id !== onlineId && !map.has(fp.id)) {
         map.set(fp.id, fp);
       }
     }
     return Array.from(map.values());
-  }, [serverPlayers, firestorePlayers, onlineId, identity.uid]);
+  }, [serverPlayers, firestorePlayers, onlineId]);
 
   const resolvedWeather: WeatherType = weatherMode === 'auto' ? liveWeather : weatherMode;
   const resolvedTime: ResolvedTimeOfDay = timeMode === 'auto' ? resolveAutoTime(nowTime) : timeMode;
@@ -907,42 +905,48 @@ export default function App() {
     sendHttpHeartbeat();
     const hb = window.setInterval(sendHttpHeartbeat, 1000);
 
-    // Firestore cross-pod sync for authenticated Google users
-    let unsubFirestore: () => void = () => {};
-    let fsTimer: number | null = null;
-    if (auth.currentUser && auth.currentUser.emailVerified) {
-      unsubFirestore = subscribeOnlinePlayersFirestore((list) => {
-        if (!closed) setFirestorePlayers(list);
-      });
-      const pushFirestorePos = () => {
-        if (closed || isSpectatorRef.current) return;
-        const idn = identityRef.current;
-        const prog = progressRef.current;
-        const pos = engineRef.current?.getPlayerPosition() || playerPos;
-        upsertOnlinePlayerFirestore({
-          name: idn.name,
-          school: idn.school,
-          className: idn.className,
-          shirtColor: idn.shirtColor,
-          companion: idn.companion,
-          x: pos.x,
-          y: pos.y,
-          z: pos.z,
-          rotY: pos.rotY,
-          level: prog.level,
-          completedCount: prog.completedQuestions.length,
-          insideBuildingId: activeBuildingRef.current || ''
-        }).catch(() => {});
-      };
-      pushFirestorePos();
-      fsTimer = window.setInterval(pushFirestorePos, 1500);
-    }
+    // Universal Firestore cross-URL & cross-instance sync (Guest, Google, and Admin Guru)
+    let lastFsPushMs = 0;
+    const unsubFirestore = subscribeOnlinePlayersFirestore(onlineId, (list) => {
+      if (!closed) setFirestorePlayers(list);
+    });
+
+    const pushFirestorePos = (force = false) => {
+      if (closed) return;
+      const now = Date.now();
+      if (!force && now - lastFsPushMs < (isMovingRef.current ? 850 : 2200)) return;
+      lastFsPushMs = now;
+      const idn = identityRef.current;
+      const prog = progressRef.current;
+      const pos = engineRef.current?.getPlayerPosition() || playerPos;
+      upsertOnlinePlayerFirestore(onlineId, {
+        name: idn.name,
+        school: idn.school,
+        className: idn.className,
+        shirtColor: idn.shirtColor,
+        pantsColor: idn.pantsColor,
+        hairColor: idn.hairColor,
+        hatStyle: idn.hatStyle,
+        companion: idn.companion,
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        rotY: pos.rotY,
+        level: prog.level,
+        completedCount: prog.completedQuestions.length,
+        insideBuildingId: isSpectatorRef.current ? '' : activeBuildingRef.current || '',
+        isSpectator: userRoleRef.current === 'admin' && isSpectatorRef.current
+      }).catch(() => {});
+    };
+
+    pushFirestorePos(true);
+    const fsTimer = window.setInterval(() => pushFirestorePos(false), 850);
 
     const handleBeforeUnload = () => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'leave' }));
       }
-      removeOnlinePlayerFirestore().catch(() => {});
+      removeOnlinePlayerFirestore(onlineId).catch(() => {});
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 
@@ -950,13 +954,13 @@ export default function App() {
       closed = true;
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.clearInterval(hb);
-      if (fsTimer !== null) window.clearInterval(fsTimer);
+      window.clearInterval(fsTimer);
       unsubFirestore();
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'leave' }));
       }
       wsRef.current?.close();
-      removeOnlinePlayerFirestore().catch(() => {});
+      removeOnlinePlayerFirestore(onlineId).catch(() => {});
       setServerPlayers([]);
       setFirestorePlayers([]);
     };
@@ -1492,7 +1496,7 @@ export default function App() {
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({ type: 'leave' }));
                   }
-                  removeOnlinePlayerFirestore().catch(() => {});
+                  removeOnlinePlayerFirestore(onlineId).catch(() => {});
                   if (identity.isGoogleUser) {
                     await signOutGoogle().catch(() => {});
                   }
@@ -1746,12 +1750,17 @@ export default function App() {
 
             <button
               type="button"
-              onClick={(e) => {
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 e.currentTarget.blur();
                 sound.unlock();
-                engineRef.current?.jump();
+                engineRef.current?.setJumpHeld(true);
               }}
-              className="min-h-[54px] px-4 rounded-2xl bg-sky-500 hover:bg-sky-400 border-2 border-white text-slate-950 font-display font-black text-sm flex items-center gap-1.5 shadow-2xl cursor-pointer active:scale-95 transition-transform"
+              onPointerUp={() => engineRef.current?.setJumpHeld(false)}
+              onPointerCancel={() => engineRef.current?.setJumpHeld(false)}
+              onPointerLeave={() => engineRef.current?.setJumpHeld(false)}
+              className="touch-none select-none min-h-[54px] px-4 rounded-2xl bg-sky-500 hover:bg-sky-400 border-2 border-white text-slate-950 font-display font-black text-sm flex items-center gap-1.5 shadow-2xl cursor-pointer active:scale-95 transition-transform"
               title="Lompat (Spasi di Laptop)"
             >
               <ArrowUp className="w-5 h-5 stroke-[2.75]" />

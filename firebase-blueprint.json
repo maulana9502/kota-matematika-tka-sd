@@ -50,6 +50,9 @@
         "school": { "type": "string", "minLength": 1, "maxLength": 120 },
         "className": { "type": "string", "minLength": 1, "maxLength": 40 },
         "shirtColor": { "type": "string", "minLength": 4, "maxLength": 20 },
+        "pantsColor": { "type": "string", "minLength": 4, "maxLength": 20 },
+        "hairColor": { "type": "string", "minLength": 4, "maxLength": 20 },
+        "hatStyle": { "type": "string", "minLength": 1, "maxLength": 30 },
         "companion": { "type": "string", "enum": ["garuda", "robot", "kucing", "naga"] },
         "x": { "type": "number" },
         "y": { "type": "number" },
@@ -58,6 +61,7 @@
         "level": { "type": "integer" },
         "completedCount": { "type": "integer" },
         "insideBuildingId": { "type": "string", "maxLength": 40 },
+        "isSpectator": { "type": "boolean" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [

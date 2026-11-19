@@ -80,20 +80,24 @@ service cloud.firestore {
       && data.updatedAt is timestamp;
     }
 
-    function isValidOnlinePlayer(data, userId) {
+    function isValidOnlinePlayer(data, playerId) {
       return data.keys().hasAll([
         'uid', 'name', 'school', 'className', 'shirtColor', 'companion',
         'x', 'y', 'z', 'rotY', 'level', 'completedCount', 'updatedAt'
       ])
       && data.keys().hasOnly([
-        'uid', 'name', 'school', 'className', 'shirtColor', 'companion',
-        'x', 'y', 'z', 'rotY', 'level', 'completedCount', 'insideBuildingId', 'updatedAt'
+        'uid', 'name', 'school', 'className', 'shirtColor', 'pantsColor',
+        'hairColor', 'hatStyle', 'companion', 'x', 'y', 'z', 'rotY',
+        'level', 'completedCount', 'insideBuildingId', 'isSpectator', 'updatedAt'
       ])
-      && data.uid is string && data.uid == request.auth.uid && data.uid == userId
+      && data.uid is string && data.uid == playerId && isValidId(data.uid)
       && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
       && data.school is string && data.school.size() >= 1 && data.school.size() <= 120
       && data.className is string && data.className.size() >= 1 && data.className.size() <= 40
       && data.shirtColor is string && data.shirtColor.size() >= 4 && data.shirtColor.size() <= 20
+      && (!('pantsColor' in data) || (data.pantsColor is string && data.pantsColor.size() >= 4 && data.pantsColor.size() <= 20))
+      && (!('hairColor' in data) || (data.hairColor is string && data.hairColor.size() >= 4 && data.hairColor.size() <= 20))
+      && (!('hatStyle' in data) || (data.hatStyle is string && data.hatStyle.size() >= 1 && data.hatStyle.size() <= 30))
       && data.companion is string && isValidCompanion(data.companion)
       && data.x is number && data.x >= -200 && data.x <= 200
       && data.y is number && data.y >= -20 && data.y <= 50
@@ -102,6 +106,7 @@ service cloud.firestore {
       && data.level is int && data.level >= 1 && data.level <= 100
       && data.completedCount is int && data.completedCount >= 0 && data.completedCount <= 50
       && (!('insideBuildingId' in data) || (data.insideBuildingId is string && data.insideBuildingId.size() <= 40))
+      && (!('isSpectator' in data) || data.isSpectator is bool)
       && data.updatedAt is timestamp;
     }
 
@@ -166,22 +171,23 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Public 3D city presence (no PII)
-    match /players/{userId} {
-      allow get: if isValidId(userId) && isSignedIn();
-      allow list: if isSignedIn() && resource.data.uid is string && resource.data.level >= 1;
-      allow create: if isValidId(userId) && isVerified() && isOwner(userId)
-        && isValidOnlinePlayer(incoming(), userId)
+    // Public 3D city presence (no PII — shared across all Cloud Run instances & login modes)
+    match /players/{playerId} {
+      allow get: if isValidId(playerId);
+      allow list: if resource.data.level >= 1;
+      allow create: if isValidId(playerId)
+        && isValidOnlinePlayer(incoming(), playerId)
         && incoming().updatedAt == request.time;
-      allow update: if isValidId(userId) && isVerified() && isOwner(userId)
-        && isValidOnlinePlayer(incoming(), userId)
+      allow update: if isValidId(playerId)
+        && isValidOnlinePlayer(incoming(), playerId)
         && incoming().uid == existing().uid
         && incoming().updatedAt == request.time
         && incoming().diff(existing()).affectedKeys().hasOnly([
-          'name', 'school', 'className', 'shirtColor', 'companion',
-          'x', 'y', 'z', 'rotY', 'level', 'completedCount', 'insideBuildingId', 'updatedAt'
+          'name', 'school', 'className', 'shirtColor', 'pantsColor', 'hairColor',
+          'hatStyle', 'companion', 'x', 'y', 'z', 'rotY', 'level',
+          'completedCount', 'insideBuildingId', 'isSpectator', 'updatedAt'
         ]);
-      allow delete: if isValidId(userId) && isOwner(userId);
+      allow delete: if isValidId(playerId) && resource.data.uid == playerId;
     }
 
     // Teacher archives (Sheet Guru)

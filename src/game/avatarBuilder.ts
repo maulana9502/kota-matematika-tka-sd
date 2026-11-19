@@ -17,7 +17,7 @@ export interface AvatarRig {
   companionRig: CompanionRig;
   updateAppearance: (app: AvatarAppearance) => void;
   updateNameplate: (name: string, className: string, level: number, progressText: string) => void;
-  animate: (dt: number, elapsed: number, moving: boolean, sprinting: boolean) => void;
+  animate: (dt: number, elapsed: number, moving: boolean, sprinting: boolean, inAir?: boolean) => void;
   dispose: () => void;
 }
 
@@ -394,8 +394,16 @@ export function createRobloxAvatar(
       drawNameplateCanvas(npCanvas, name, className, level, progressText);
       npTexture.needsUpdate = true;
     },
-    animate(dt: number, elapsed: number, moving: boolean, sprinting: boolean) {
-      if (moving) {
+    animate(dt: number, elapsed: number, moving: boolean, sprinting: boolean, inAir = false) {
+      if (inAir) {
+        const blend = Math.min(1, dt * 16);
+        leftArm.rotation.x += (-2.25 - leftArm.rotation.x) * blend;
+        rightArm.rotation.x += (0.55 - rightArm.rotation.x) * blend;
+        leftLeg.rotation.x += (0.48 - leftLeg.rotation.x) * blend;
+        rightLeg.rotation.x += (-0.52 - rightLeg.rotation.x) * blend;
+        torsoMesh.position.y = 1.24;
+        headGroup.position.y = 1.96;
+      } else if (moving) {
         const freq = sprinting ? 14 : 9.5;
         const amp = sprinting ? 0.72 : 0.52;
         const swing = Math.sin(elapsed * freq) * amp;
@@ -414,7 +422,7 @@ export function createRobloxAvatar(
         torsoMesh.position.y = 1.22 + Math.sin(elapsed * 2.2) * 0.015;
         headGroup.position.y = 1.94 + Math.sin(elapsed * 2.2) * 0.015;
       }
-      companionRig.animate(elapsed, moving);
+      companionRig.animate(elapsed, moving || inAir);
     },
     dispose() {
       faceTex.dispose();

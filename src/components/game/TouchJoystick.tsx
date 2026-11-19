@@ -81,11 +81,12 @@ export const TouchJoystick: React.FC<TouchJoystickProps> = ({
       {/* Sprint Toggle */}
       <button
         type="button"
-        onClick={(e) => {
+        onPointerDown={(e) => {
           e.stopPropagation();
+          e.currentTarget.blur();
           onToggleSprint();
         }}
-        className={`min-h-[48px] px-3.5 rounded-2xl border-2 font-extrabold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer transition-colors ${
+        className={`touch-none min-h-[48px] px-3.5 rounded-2xl border-2 font-extrabold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer transition-colors ${
           sprint
             ? 'bg-amber-400 border-white text-slate-950'
             : 'bg-slate-900/90 border-white/25 text-white'
