@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   COMPANION_OPTIONS,
   CompanionId,
@@ -7,7 +7,7 @@ import {
 } from '../../types/game';
 import { KOTA_LABEL } from '../../data/tkaData';
 import { sound, voice } from '../../utils/sound';
-import { Volume2, Sparkles, Gamepad2, ShieldCheck } from 'lucide-react';
+import { Volume2, Sparkles, Gamepad2, ShieldCheck, Eye, Shield } from 'lucide-react';
 
 interface LoginScreenProps {
   initialIdentity: PlayerIdentity;
@@ -27,38 +27,81 @@ interface LoginScreenProps {
     shirtColor: string;
     companion: CompanionId;
   }) => void;
+  onEnterSpectator: () => void;
+  onEnterAdminGuru: (password: string) => Promise<{ ok: boolean; message?: string }>;
 }
 
+const WELCOME_HEADLINE = 'Selamat Datang di Kota Matematika 3D!';
 const SOFT_SELL_TEXT =
   'Bosan belajar matematika yang cuma gitu-gitu aja? Di sini, rumus dan hitungan berubah jadi petualangan interaktif! Karya inovasi pembelajaran digital persembahan Tim Guru SMP Kemala Bhayangkari 7 Porong — tempat di mana belajar nggak cuma soal papan tulis, tapi juga eksplorasi teknologi masa depan.';
 
-const SOFT_SELL_VOICE = `${SOFT_SELL_TEXT} Apakah sudah siap menjelajahi Kota Matematika 3D? Isi namamu atau masuk dengan Google untuk menyimpan progres petualangan secara otomatis!`;
+const WELCOME_VOICE_OVER = `Selamat datang di Kota Matematika 3D, persembahan Tim Guru SMP Kemala Bhayangkari 7 Porong! ${SOFT_SELL_TEXT} Silakan isi namamu untuk mulai berpetualang, masuk dengan Google, atau pilih Mode Spectator dan Admin Guru.`;
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   initialIdentity,
   googleLoading,
   googleError,
   onGoogleLogin,
-  onGuestEnter
+  onGuestEnter,
+  onEnterSpectator,
+  onEnterAdminGuru
 }) => {
   const [name, setName] = useState(initialIdentity.name || '');
-  const [school, setSchool] = useState(initialIdentity.school || 'SDN / SMP Kemala Bhayangkari 7 Porong');
+  const [school, setSchool] = useState(initialIdentity.school || 'SMP Kemala Bhayangkari 7 Porong');
   const [className, setClassName] = useState(initialIdentity.className || '6A');
   const [shirtColor, setShirtColor] = useState(initialIdentity.shirtColor || '#2563EB');
   const [companion, setCompanion] = useState<CompanionId>(initialIdentity.companion || 'garuda');
   const [formError, setFormError] = useState<string | null>(null);
-  const [voiceActive, setVoiceActive] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(true);
+  const spokenOnceRef = useRef(false);
 
-  const playIntroVoice = () => {
+  // Admin Guru Password Prompt State
+  const [adminPromptOpen, setAdminPromptOpen] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminChecking, setAdminChecking] = useState(false);
+
+  const triggerWelcomeVoice = () => {
     sound.unlock();
-    sound.pop();
     sound.setMuted(false);
     sound.setMusicEnabled(true);
     sound.startMusic();
     voice.setEnabled(true);
-    voice.speak(SOFT_SELL_VOICE, true);
+    voice.speak(WELCOME_VOICE_OVER, true);
     setVoiceActive(true);
   };
+
+  // Automatically activate Welcome Voice Guide when the web opens + fallback on first pointer/key gesture
+  useEffect(() => {
+    voice.setEnabled(true);
+    if (!spokenOnceRef.current) {
+      spokenOnceRef.current = true;
+      try {
+        voice.speak(WELCOME_VOICE_OVER, true);
+      } catch {
+        // Browser may require gesture first
+      }
+    }
+
+    const unlockAndSpeakOnFirstGesture = () => {
+      sound.unlock();
+      sound.setMuted(false);
+      sound.setMusicEnabled(true);
+      sound.startMusic();
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window && !window.speechSynthesis.speaking) {
+        voice.setEnabled(true);
+        voice.speak(WELCOME_VOICE_OVER, true);
+      }
+      setVoiceActive(true);
+    };
+
+    window.addEventListener('pointerdown', unlockAndSpeakOnFirstGesture, { once: true });
+    window.addEventListener('keydown', unlockAndSpeakOnFirstGesture, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlockAndSpeakOnFirstGesture);
+      window.removeEventListener('keydown', unlockAndSpeakOnFirstGesture);
+    };
+  }, []);
 
   const handleSubmitGuest = (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,6 +121,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       shirtColor,
       companion
     });
+  };
+
+  const handleAdminSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminPassword.trim()) {
+      setAdminError('Masukkan sandi Admin Guru.');
+      return;
+    }
+    setAdminChecking(true);
+    setAdminError(null);
+    const res = await onEnterAdminGuru(adminPassword);
+    setAdminChecking(false);
+    if (!res.ok) {
+      sound.softWrong();
+      setAdminError(res.message || 'Sandi Admin Guru salah.');
+    } else {
+      sound.clap();
+    }
   };
 
   return (
@@ -168,50 +229,77 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 max-w-5xl w-full mx-auto px-4 py-6 sm:py-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-        {/* Left Column: Soft-Selling Intro & Voice Over */}
+      <main className="relative z-10 max-w-5xl w-full mx-auto px-4 py-5 sm:py-7 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+        {/* Left Column: Immediate Welcome Greeting + Auto-Active Voice Guide + Soft-Selling Intro */}
         <section className="lg:col-span-6 space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-400/95 text-slate-950 font-extrabold text-xs tracking-wide shadow-md">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-400 text-slate-950 font-black text-xs tracking-wide shadow-md">
             <Sparkles className="w-4 h-4" />
-            <span>{KOTA_LABEL} · KELAS 6 SD</span>
+            <span>{WELCOME_HEADLINE.toUpperCase()}</span>
           </div>
 
           <h1 className="font-display text-3xl sm:text-4xl lg:text-[42px] font-black leading-tight text-white drop-shadow-[0_3px_10px_rgba(0,0,0,0.85)]">
-            Petualangan Kota 3D Persiapan TKA SD
+            {WELCOME_HEADLINE}
           </h1>
 
-          <div className="rounded-2xl bg-slate-900/82 border border-white/15 p-4 sm:p-5 space-y-3 shadow-xl">
+          <div className="rounded-2xl bg-slate-900/86 border border-white/15 p-4 sm:p-5 space-y-3 shadow-xl">
+            <div className="flex items-center justify-between gap-2 text-xs font-extrabold text-emerald-300">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Pemandu Suara Aktif Otomatis · {KOTA_LABEL}</span>
+              </span>
+            </div>
             <p className="text-sm sm:text-base text-slate-100 leading-relaxed font-medium">
               “{SOFT_SELL_TEXT}”
             </p>
-            <div className="flex flex-wrap items-center gap-3 pt-1">
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
               <button
                 type="button"
-                onClick={playIntroVoice}
-                className="min-h-[46px] px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-md transition-transform active:scale-95"
+                onClick={() => {
+                  sound.pop();
+                  triggerWelcomeVoice();
+                }}
+                className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-2 cursor-pointer shadow-md transition-transform active:scale-95"
               >
                 <Volume2 className="w-4 h-4" />
-                <span>{voiceActive ? 'Putar Ulang Suara Pembuka & Backsound' : 'Apakah Sudah Siap? Putar Suara Pembuka'}</span>
+                <span>{voiceActive ? 'Putar Ulang Suara Selamat Datang & Musik' : 'Aktifkan Suara Pemandu'}</span>
               </button>
-              <span className="text-xs text-sky-200 font-semibold">
-                25 Soal Interaktif + 5 Bab Materi + Arena Duel 1v1 (125 Soal)
-              </span>
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2.5 text-center">
-            <div className="rounded-xl bg-slate-900/80 border border-white/15 p-3">
-              <div className="text-lg font-black text-amber-300 font-mono-num">6 Gedung</div>
-              <div className="text-[11px] text-slate-200 font-semibold">Kota 3D Terbuka</div>
-            </div>
-            <div className="rounded-xl bg-slate-900/80 border border-white/15 p-3">
-              <div className="text-lg font-black text-emerald-300 font-mono-num">25 Widget</div>
-              <div className="text-[11px] text-slate-200 font-semibold">Manipulatif IFP</div>
-            </div>
-            <div className="rounded-xl bg-slate-900/80 border border-white/15 p-3">
-              <div className="text-lg font-black text-sky-300 font-mono-num">PvP 1v1</div>
-              <div className="text-[11px] text-slate-200 font-semibold">Multiplayer Real-Time</div>
-            </div>
+          {/* Spectator & Admin Guru Quick Entry Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                sound.unlock();
+                sound.pop();
+                onEnterSpectator();
+              }}
+              className="min-h-[54px] px-4 py-3 rounded-2xl bg-sky-700/92 hover:bg-sky-600 border border-sky-400/50 text-white text-left flex items-center gap-3 cursor-pointer shadow-lg transition-transform active:scale-98"
+            >
+              <Eye className="w-6 h-6 text-sky-200 shrink-0" />
+              <div>
+                <div className="font-display font-black text-sm">Mode Spectator</div>
+                <div className="text-[11px] text-sky-100">Jelajah kamera & pantau kota 3D</div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                sound.unlock();
+                sound.click();
+                setAdminError(null);
+                setAdminPromptOpen(true);
+              }}
+              className="min-h-[54px] px-4 py-3 rounded-2xl bg-slate-900/92 hover:bg-slate-800 border border-amber-400/60 text-white text-left flex items-center gap-3 cursor-pointer shadow-lg transition-transform active:scale-98"
+            >
+              <Shield className="w-6 h-6 text-amber-400 shrink-0" />
+              <div>
+                <div className="font-display font-black text-sm text-amber-300">Mode Admin Guru</div>
+                <div className="text-[11px] text-slate-300">Kendali kelas & pantau siswa</div>
+              </div>
+            </button>
           </div>
         </section>
 
@@ -223,14 +311,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           >
             <div>
               <h2 className="font-display text-xl sm:text-2xl font-black text-slate-900">
-                Identitas Penjelajah & Avatar
+                Masuk Sebagai Siswa Penjelajah
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
                 Lengkapi data dirimu untuk tampil di papan nama 3D dan arsip guru.
               </p>
             </div>
 
-            {/* Google Sign-In Official gsi-material-button style */}
+            {/* Google Sign-In Official gsi-material-button style (basic profile/email only — works across accounts) */}
             <div className="space-y-2">
               <button
                 type="button"
@@ -240,7 +328,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   sound.click();
                   onGoogleLogin({
                     name: name.trim() || 'Siswa Hebat',
-                    school: school.trim() || 'SD/SMP Kemala Bhayangkari 7 Porong',
+                    school: school.trim() || 'SMP Kemala Bhayangkari 7 Porong',
                     className: className.trim() || '6A',
                     shirtColor,
                     companion
@@ -267,15 +355,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   />
                 </svg>
                 <span>
-                  {googleLoading ? 'Menghubungkan Akun Google...' : 'Masuk dengan Google (Simpan Cloud & Google Sheets)'}
+                  {googleLoading ? 'Menghubungkan Akun Google...' : 'Masuk dengan Google (Simpan Progres Cloud)'}
                 </span>
               </button>
               <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-semibold">
                 <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                <span>Progres bab, piala 3D, dan pengiriman Google Sheets tersimpan otomatis saat masuk Google.</span>
+                <span>Login Google memakai profil dasar agar lancar; izin Drive/Sheets diminta saat kirim tugas.</span>
               </div>
               {googleError && (
-                <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-800 font-semibold">
+                <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-800 font-semibold leading-relaxed">
                   {googleError}
                 </div>
               )}
@@ -398,6 +486,64 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       <footer className="relative z-10 px-4 py-3 text-center text-xs text-slate-300 font-medium">
         Media Pembelajaran Interaktif Kelas 6 SD · Soal Latihan Bermodel TKA · Tim Guru SMP Kemala Bhayangkari 7 Porong
       </footer>
+
+      {/* Teacher Admin Password Modal */}
+      {adminPromptOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleAdminSubmit}
+            className="w-full max-w-md rounded-3xl bg-white text-slate-900 p-6 shadow-2xl border border-slate-200 space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-display text-lg font-black text-slate-900">Login Mode Admin Guru</h3>
+                <p className="text-xs text-slate-500">Masukkan kata sandi guru untuk membuka kendali kelas 3D.</p>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="admin-pass-input" className="block text-xs font-bold text-slate-700 mb-1">
+                Sandi Guru
+              </label>
+              <input
+                id="admin-pass-input"
+                type="password"
+                autoFocus
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="Masukkan sandi guru..."
+                className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-300 focus:border-blue-600 focus:outline-none text-sm font-semibold"
+              />
+            </div>
+
+            {adminError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-xs font-bold text-rose-800">
+                {adminError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setAdminPromptOpen(false)}
+                className="min-h-[42px] px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={adminChecking}
+                className="min-h-[42px] px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs cursor-pointer disabled:opacity-60"
+              >
+                {adminChecking ? 'Memeriksa...' : 'Masuk Sebagai Admin Guru'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

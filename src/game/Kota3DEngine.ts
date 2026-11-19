@@ -65,6 +65,9 @@ export class Kota3DEngine {
   private mobileSprint = false;
   private activeBuildingId: BuildingId | null = null;
   private lastNearbyKey = '';
+  private spectatorMode = false;
+  private spectatorFollowId: string | null = null;
+  private spectatorPos = new THREE.Vector3(0, 7, 28);
 
   // Pre-allocated math scratch objects outside render loop
   private _forward = new THREE.Vector3();
@@ -253,6 +256,29 @@ export class Kota3DEngine {
     this.mobileSprint = sprint;
   }
 
+  public setSpectatorMode(enabled: boolean, followId: string | null = null) {
+    this.spectatorMode = enabled;
+    this.spectatorFollowId = followId;
+    if (enabled) {
+      if (this.activeBuildingId) this.exitBuilding();
+      this.playerRig.root.visible = false;
+      this.spectatorPos.set(this.playerPos.x, 7.5, this.playerPos.z);
+    } else {
+      this.spectatorFollowId = null;
+      this.playerRig.root.visible = true;
+    }
+  }
+
+  public setSpectatorFollow(playerId: string | null) {
+    this.spectatorFollowId = playerId;
+    if (playerId) {
+      const target = this.remotePlayers.get(playerId);
+      if (target) {
+        this.spectatorPos.set(target.rig.root.position.x, 4.5, target.rig.root.position.z);
+      }
+    }
+  }
+
   public updateAppearance(app: AvatarAppearance) {
     this.playerRig.updateAppearance(app);
   }
@@ -363,7 +389,7 @@ export class Kota3DEngine {
   public syncRemotePlayers(players: OnlinePlayer[], selfId: string) {
     const seen = new Set<string>();
     for (const p of players) {
-      if (p.id === selfId) continue;
+      if (p.id === selfId || p.isSpectator) continue;
       seen.add(p.id);
       const appKey = `${p.shirtColor}|${p.pantsColor}|${p.hairColor}|${p.hatStyle}|${p.companion}|${p.level}|${p.completedCount}`;
       let entry = this.remotePlayers.get(p.id);
@@ -467,37 +493,63 @@ export class Kota3DEngine {
     const sprinting = this.mobileSprint || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     const moving = inputMag > 0.08;
 
-    if (moving) {
-      const clampedMag = Math.min(1, inputMag);
-      const nx = inputX / inputMag;
-      const ny = inputY / inputMag;
+    if (this.spectatorMode) {
+      this.playerRig.root.visible = false;
+      if (this.spectatorFollowId) {
+        const target = this.remotePlayers.get(this.spectatorFollowId);
+        if (target) {
+          this.spectatorPos.lerp(
+            new THREE.Vector3(target.rig.root.position.x, target.rig.root.position.y + 2.5, target.rig.root.position.z),
+            Math.min(1, dt * 8)
+          );
+        } else {
+          this.spectatorFollowId = null;
+        }
+      } else if (moving) {
+        const clampedMag = Math.min(1, inputMag);
+        const nx = inputX / inputMag;
+        const ny = inputY / inputMag;
+        this._forward.set(-Math.sin(this.camYaw), 0, -Math.cos(this.camYaw)).normalize();
+        this._right.crossVectors(this._forward, this._up).normalize();
+        this._moveDir.set(0, 0, 0).addScaledVector(this._forward, -ny).addScaledVector(this._right, nx).normalize();
+        const flySpeed = (sprinting ? 26 : 14) * clampedMag;
+        this.spectatorPos.x = THREE.MathUtils.clamp(this.spectatorPos.x + this._moveDir.x * flySpeed * dt, -52, 52);
+        this.spectatorPos.z = THREE.MathUtils.clamp(this.spectatorPos.z + this._moveDir.z * flySpeed * dt, -68, 52);
+      }
+      this.playerPos.set(this.spectatorPos.x, 0, this.spectatorPos.z);
+    } else {
+      if (moving) {
+        const clampedMag = Math.min(1, inputMag);
+        const nx = inputX / inputMag;
+        const ny = inputY / inputMag;
 
-      this._forward.set(-Math.sin(this.camYaw), 0, -Math.cos(this.camYaw)).normalize();
-      this._right.crossVectors(this._forward, this._up).normalize();
-      this._moveDir.set(0, 0, 0).addScaledVector(this._forward, -ny).addScaledVector(this._right, nx).normalize();
+        this._forward.set(-Math.sin(this.camYaw), 0, -Math.cos(this.camYaw)).normalize();
+        this._right.crossVectors(this._forward, this._up).normalize();
+        this._moveDir.set(0, 0, 0).addScaledVector(this._forward, -ny).addScaledVector(this._right, nx).normalize();
 
-      const speed = (sprinting ? 14.5 : 8.5) * clampedMag;
-      const [rx, rz] = this.resolveCollisions(
-        this.playerPos.x + this._moveDir.x * speed * dt,
-        this.playerPos.z + this._moveDir.z * speed * dt
-      );
-      this.playerPos.x = rx;
-      this.playerPos.z = rz;
+        const speed = (sprinting ? 14.5 : 8.5) * clampedMag;
+        const [rx, rz] = this.resolveCollisions(
+          this.playerPos.x + this._moveDir.x * speed * dt,
+          this.playerPos.z + this._moveDir.z * speed * dt
+        );
+        this.playerPos.x = rx;
+        this.playerPos.z = rz;
 
-      const targetRot = Math.atan2(this._moveDir.x, this._moveDir.z);
-      let diff = targetRot - this.playerRotY;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      this.playerRotY += diff * Math.min(1, dt * 12);
+        const targetRot = Math.atan2(this._moveDir.x, this._moveDir.z);
+        let diff = targetRot - this.playerRotY;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        this.playerRotY += diff * Math.min(1, dt * 12);
+      }
+
+      this.playerRig.root.position.copy(this.playerPos);
+      this.playerRig.root.rotation.y = this.playerRotY;
+      this.playerRig.animate(dt, elapsed, moving, sprinting);
     }
-
-    this.playerRig.root.position.copy(this.playerPos);
-    this.playerRig.root.rotation.y = this.playerRotY;
-    this.playerRig.animate(dt, elapsed, moving, sprinting);
 
     if (elapsed - this.lastNetEmit > 0.1) {
       this.lastNetEmit = elapsed;
-      this.callbacks.onPlayerMove(this.playerPos.x, this.playerPos.y, this.playerPos.z, this.playerRotY, moving);
+      this.callbacks.onPlayerMove(this.playerPos.x, this.playerPos.y, this.playerPos.z, this.playerRotY, !this.spectatorMode && moving);
     }
 
     // 2. Smooth Remote Players
@@ -539,9 +591,14 @@ export class Kota3DEngine {
       this.interior.animate(elapsed);
     }
 
-    // 4. Proximity check (City Building Portals OR Interior Stations)
+    // 4. Proximity check (City Building Portals OR Interior Stations; skipped in Spectator mode)
     let nearbyKey = '';
-    if (!this.activeBuildingId) {
+    if (this.spectatorMode) {
+      if (this.lastNearbyKey !== '') {
+        this.lastNearbyKey = '';
+        this.callbacks.onNearbyChange(null);
+      }
+    } else if (!this.activeBuildingId) {
       let found: BuildingDef | null = null;
       for (const b of CITY_BUILDINGS) {
         const dist = Math.hypot(this.playerPos.x - b.frontX, this.playerPos.z - b.frontZ);
@@ -574,7 +631,11 @@ export class Kota3DEngine {
     }
 
     // 5. Camera 360 Orbit Follow
-    this._camTarget.set(this.playerPos.x, this.playerPos.y + 1.85, this.playerPos.z);
+    if (this.spectatorMode) {
+      this._camTarget.set(this.spectatorPos.x, this.spectatorPos.y, this.spectatorPos.z);
+    } else {
+      this._camTarget.set(this.playerPos.x, this.playerPos.y + 1.85, this.playerPos.z);
+    }
     const activeDist = this.activeBuildingId ? Math.min(this.camDistance, 8.5) : this.camDistance;
     const horizDist = Math.cos(this.camPitch) * activeDist;
     const vertDist = Math.sin(this.camPitch) * activeDist;

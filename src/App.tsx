@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CITY_BUILDINGS } from './data/buildings';
+import { TKA_QUESTIONS } from './data/tkaData';
 import { Kota3DEngine } from './game/Kota3DEngine';
 import {
   AvatarAppearance,
@@ -13,6 +14,7 @@ import {
   ResolvedTimeOfDay,
   StationId,
   TimeOfDayMode,
+  UserRole,
   WeatherType
 } from './types/game';
 import {
@@ -20,7 +22,7 @@ import {
   loadCloudProgress,
   saveCloudArchive,
   saveCloudProgress,
-  signInWithGoogleWorkspace,
+  signInWithGoogleBasic,
   signOutGoogle,
   testFirestoreConnection
 } from './utils/firebaseClient';
@@ -34,26 +36,30 @@ import { OnlinePlayersModal } from './components/game/OnlinePlayersModal';
 import { BuildingStationModal } from './components/game/BuildingStationModal';
 import { ActiveDuelState, VersusModal } from './components/game/VersusModal';
 import { SheetGuruModal } from './components/game/SheetGuruModal';
+import { AdminGuruModal } from './components/game/AdminGuruModal';
+import { TeacherPanel } from './components/TeacherPanel';
 import {
   Cloud,
   CloudLightning,
   CloudRain,
   DoorOpen,
+  Eye,
   FileSpreadsheet,
   Gamepad2,
   LogOut,
   Maximize2,
   Minimize2,
   Moon,
+  Music,
   Palette,
+  Shield,
   Sun,
   Sunrise,
   Sunset,
   Swords,
   Users,
   Volume2,
-  VolumeX,
-  Music
+  VolumeX
 } from 'lucide-react';
 
 const DEFAULT_IDENTITY: PlayerIdentity = {
@@ -84,6 +90,16 @@ const DEFAULT_PROGRESS: PlayerProgress = {
   versusWins: 0,
   level: 1
 };
+
+function makeDeterministicStudentUid(name: string, school: string, className: string): string {
+  const raw = `${name.trim().toLowerCase()}|${school.trim().toLowerCase()}|${className.trim().toLowerCase()}`;
+  let hash = 2166136261;
+  for (let i = 0; i < raw.length; i++) {
+    hash ^= raw.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `stu_${(hash >>> 0).toString(36)}`;
+}
 
 function loadLocalIdentity(): PlayerIdentity {
   try {
@@ -148,6 +164,22 @@ function pickRandomIndices(count = 5, bankSize = 125): number[] {
 
 export default function App() {
   const [enteredCity, setEnteredCity] = useState(false);
+  const [userRole, setUserRole] = useState<UserRole>('student');
+  const [isSpectator, setIsSpectator] = useState(false);
+  const [spectatorFollowId, setSpectatorFollowId] = useState<string | null>(null);
+
+  // Admin Guru state
+  const [adminPass, setAdminPass] = useState<string>('');
+  const [adminAuthPromptOpen, setAdminAuthPromptOpen] = useState(false);
+  const [adminPassInput, setAdminPassInput] = useState('');
+  const [adminPassError, setAdminPassError] = useState<string | null>(null);
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [teacherPanelOpen, setTeacherPanelOpen] = useState(false);
+  const [localFrozen, setLocalFrozen] = useState(false);
+  const [adminFrozenAll, setAdminFrozenAll] = useState(false);
+  const [globalFrozenByAdmin, setGlobalFrozenByAdmin] = useState(false);
+  const [adminAnnouncement, setAdminAnnouncement] = useState<string | null>(null);
+
   const [identity, setIdentity] = useState<PlayerIdentity>(loadLocalIdentity);
   const [progress, setProgress] = useState<PlayerProgress>(loadLocalProgress);
   const [teacherEmail, setTeacherEmail] = useState<string>(() => {
@@ -216,6 +248,10 @@ export default function App() {
 
   const activeBuildingRef = useRef<BuildingId | null>(null);
   activeBuildingRef.current = activeBuildingId;
+  const isSpectatorRef = useRef(isSpectator);
+  isSpectatorRef.current = isSpectator;
+  const userRoleRef = useRef<UserRole>(userRole);
+  userRoleRef.current = userRole;
 
   const resolvedWeather: WeatherType = weatherMode === 'auto' ? liveWeather : weatherMode;
   const resolvedTime: ResolvedTimeOfDay = timeMode === 'auto' ? resolveAutoTime() : timeMode;
@@ -227,7 +263,6 @@ export default function App() {
     }, 3500);
   }, []);
 
-  // Test Firestore connection cleanly on startup
   useEffect(() => {
     testFirestoreConnection().catch(() => {});
   }, []);
@@ -264,7 +299,6 @@ export default function App() {
     };
   }, []);
 
-  // Persist local state + cloud state
   const persistIdentityAndProgress = useCallback(
     async (nextId: PlayerIdentity, nextProg: PlayerProgress) => {
       try {
@@ -303,7 +337,6 @@ export default function App() {
     []
   );
 
-  // Sync mobileFullscreen state with native browser fullscreenchange
   useEffect(() => {
     const onFsChange = () => {
       if (!document.fullscreenElement) {
@@ -320,7 +353,7 @@ export default function App() {
     try {
       await document.documentElement.requestFullscreen?.();
     } catch {
-      // iOS Safari or restricted iframe still gets distraction-free fullscreen HUD
+      // graceful fallback
     }
   };
 
@@ -336,7 +369,7 @@ export default function App() {
     }
   };
 
-  // Handle Google Workspace Sign-In & Cloud Progress Merge
+  // Standard Google Login (NO Drive/Sheets scopes at login so other Google accounts aren't blocked)
   const handleGoogleLogin = async (draft: {
     name: string;
     school: string;
@@ -347,7 +380,7 @@ export default function App() {
     setGoogleLoading(true);
     setGoogleError(null);
     try {
-      const { user } = await signInWithGoogleWorkspace();
+      const { user } = await signInWithGoogleBasic();
       const cloud = await loadCloudProgress(user.uid).catch(() => null);
       const serverRes = await fetch(`/api/progress?uid=${encodeURIComponent(user.uid)}`)
         .then((r) => (r.ok ? r.json() : { progress: null }))
@@ -392,6 +425,8 @@ export default function App() {
 
       setIdentity(mergedIdentity);
       setProgress(mergedProgress);
+      setUserRole('student');
+      setIsSpectator(false);
       await persistIdentityAndProgress(mergedIdentity, mergedProgress);
       sound.clap();
       setEnteredCity(true);
@@ -402,6 +437,7 @@ export default function App() {
     }
   };
 
+  // Direct Student Login (deterministic UID by Name+School+Class so progress also persists across sessions)
   const handleGuestEnter = async (draft: {
     name: string;
     school: string;
@@ -409,8 +445,14 @@ export default function App() {
     shirtColor: string;
     companion: CompanionId;
   }) => {
+    const detUid = makeDeterministicStudentUid(draft.name, draft.school, draft.className);
+    const serverRes = await fetch(`/api/progress?uid=${encodeURIComponent(detUid)}`)
+      .then((r) => (r.ok ? r.json() : { progress: null }))
+      .catch(() => ({ progress: null }));
+
     const nextId: PlayerIdentity = {
       ...identity,
+      uid: detUid,
       name: draft.name,
       school: draft.school,
       className: draft.className,
@@ -418,9 +460,91 @@ export default function App() {
       companion: draft.companion,
       isGoogleUser: false
     };
+
+    const serverProg = serverRes?.progress as Partial<PlayerProgress> | null;
+    const mergedQuestions = Array.from(
+      new Set([...(progress.completedQuestions || []), ...(serverProg?.completedQuestions || [])])
+    );
+    const nextProg: PlayerProgress = {
+      ...progress,
+      ...(serverProg || {}),
+      completedQuestions: mergedQuestions,
+      chapterMastery: {
+        bilangan: Math.max(progress.chapterMastery.bilangan, serverProg?.chapterMastery?.bilangan || 0),
+        geometri: Math.max(progress.chapterMastery.geometri, serverProg?.chapterMastery?.geometri || 0),
+        pengukuran: Math.max(progress.chapterMastery.pengukuran, serverProg?.chapterMastery?.pengukuran || 0),
+        data: Math.max(progress.chapterMastery.data, serverProg?.chapterMastery?.data || 0),
+        strategi: Math.max(progress.chapterMastery.strategi, serverProg?.chapterMastery?.strategi || 0)
+      },
+      bintangBersama: Math.max(progress.bintangBersama, serverProg?.bintangBersama || 0),
+      versusWins: Math.max(progress.versusWins, serverProg?.versusWins || 0),
+      level: Math.max(progress.level, serverProg?.level || 1, 1 + Math.floor(mergedQuestions.length / 4))
+    };
+
     setIdentity(nextId);
-    await persistIdentityAndProgress(nextId, progress);
+    setProgress(nextProg);
+    setUserRole('student');
+    setIsSpectator(false);
+    await persistIdentityAndProgress(nextId, nextProg);
     setEnteredCity(true);
+  };
+
+  // Enter as Spectator
+  const handleEnterSpectator = () => {
+    const specId: PlayerIdentity = {
+      ...DEFAULT_IDENTITY,
+      uid: `spec_${Math.random().toString(36).slice(2, 9)}`,
+      name: identity.name || 'Penonton Kota',
+      school: identity.school || 'SMP Kemala Bhayangkari 7 Porong',
+      className: 'Spectator',
+      isGoogleUser: false
+    };
+    setIdentity(specId);
+    setUserRole('spectator');
+    setIsSpectator(true);
+    setSpectatorFollowId(null);
+    setEnteredCity(true);
+  };
+
+  // Verify Teacher Admin Password (smpbhy07#123)
+  const verifyAdminPassword = async (password: string): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      const res = await fetch('/api/admin/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      const data = (await res.json()) as { ok?: boolean; message?: string };
+      if (!res.ok || !data.ok) {
+        return { ok: false, message: data.message || 'Sandi Admin Guru salah.' };
+      }
+      setAdminPass(password);
+      return { ok: true };
+    } catch {
+      return { ok: false, message: 'Gagal terhubung ke server verifikasi.' };
+    }
+  };
+
+  const handleEnterAdminFromLogin = async (password: string) => {
+    const check = await verifyAdminPassword(password);
+    if (!check.ok) return check;
+    const adminId: PlayerIdentity = {
+      ...DEFAULT_IDENTITY,
+      uid: `guru_${Math.random().toString(36).slice(2, 8)}`,
+      name: 'Admin Guru',
+      school: 'SMP Kemala Bhayangkari 7 Porong',
+      className: 'GURU',
+      shirtColor: '#D97706',
+      hatStyle: 'topi-juara',
+      companion: 'garuda',
+      isGoogleUser: false
+    };
+    setIdentity(adminId);
+    setUserRole('admin');
+    setIsSpectator(false);
+    setEnteredCity(true);
+    setAdminModalOpen(true);
+    return { ok: true };
   };
 
   // Mount & Manage Three.js Kota3DEngine
@@ -456,7 +580,7 @@ export default function App() {
                 z,
                 rotY,
                 moving,
-                insideBuildingId: activeBuildingRef.current || ''
+                insideBuildingId: isSpectatorRef.current ? '' : activeBuildingRef.current || ''
               })
             );
           }
@@ -471,6 +595,10 @@ export default function App() {
     );
 
     engineRef.current = engine;
+    if (isSpectatorRef.current) {
+      engine.setSpectatorMode(true, null);
+    }
+
     for (const b of CITY_BUILDINGS) {
       if (b.isVersus) continue;
       const cid = b.id as ChapterId;
@@ -482,16 +610,27 @@ export default function App() {
       engine.dispose();
       engineRef.current = null;
     };
-    // Intentionally mount engine once upon entering city; dynamic updates pushed via imperative methods
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enteredCity]);
 
-  // Push atmosphere updates to 3D engine
+  // Sync Spectator mode toggle to engine + network
+  useEffect(() => {
+    if (!enteredCity) return;
+    engineRef.current?.setSpectatorMode(isSpectator, spectatorFollowId);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'profile_update',
+          player: { isSpectator }
+        })
+      );
+    }
+  }, [enteredCity, isSpectator, spectatorFollowId]);
+
   useEffect(() => {
     engineRef.current?.applyAtmosphere(resolvedTime, resolvedWeather);
   }, [resolvedTime, resolvedWeather]);
 
-  // Push avatar & progress updates to 3D engine
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
@@ -516,12 +655,11 @@ export default function App() {
     }
   }, [identity, progress]);
 
-  // Sync remote players to 3D engine
   useEffect(() => {
     engineRef.current?.syncRemotePlayers(onlinePlayers, identity.uid);
   }, [onlinePlayers, identity.uid]);
 
-  // WebSocket Multiplayer + HTTP Heartbeat Fallback
+  // WebSocket Multiplayer + HTTP Heartbeat + Admin Broadcast Events
   useEffect(() => {
     if (!enteredCity) return;
     let closed = false;
@@ -553,7 +691,8 @@ export default function App() {
               rotY: playerPos.rotY,
               level: progress.level,
               completedCount: progress.completedQuestions.length,
-              insideBuildingId: activeBuildingRef.current || ''
+              insideBuildingId: activeBuildingRef.current || '',
+              isSpectator: isSpectatorRef.current
             }
           })
         );
@@ -636,6 +775,22 @@ export default function App() {
                 ? { ...prev, winnerId: String(msg.winnerId || '') }
                 : prev
             );
+          } else if (msg.type === 'admin_event') {
+            const action = String(msg.action || '');
+            if (action === 'freeze') {
+              if (userRoleRef.current !== 'admin') {
+                setGlobalFrozenByAdmin(Boolean(msg.frozen));
+              }
+            } else if (action === 'announcement') {
+              const text = String(msg.message || '');
+              if (text) {
+                sound.ding();
+                setAdminAnnouncement(text);
+                if (Boolean(msg.speak)) {
+                  voice.speak(`Pengumuman dari Guru: ${text}`, true);
+                }
+              }
+            }
           }
         } catch {
           // ignore
@@ -651,7 +806,6 @@ export default function App() {
 
     connectWs();
 
-    // HTTP Heartbeat every 5s as backup sync
     const hb = window.setInterval(() => {
       const pos = engineRef.current?.getPlayerPosition() || playerPos;
       fetch('/api/multiplayer/heartbeat', {
@@ -674,7 +828,8 @@ export default function App() {
           moving: false,
           level: progress.level,
           completedCount: progress.completedQuestions.length,
-          insideBuildingId: activeBuildingRef.current || ''
+          insideBuildingId: isSpectatorRef.current ? '' : activeBuildingRef.current || '',
+          isSpectator: isSpectatorRef.current
         })
       })
         .then((r) => (r.ok ? r.json() : null))
@@ -694,9 +849,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enteredCity, identity.uid]);
 
-  // Trigger Contextual Nearby Building or Interior Station Action
   const triggerNearbyAction = useCallback(() => {
-    if (!nearby || !engineRef.current) return;
+    if (!nearby || !engineRef.current || isSpectator) return;
     sound.unlock();
     sound.pop();
     if (nearby.kind === 'building') {
@@ -719,17 +873,26 @@ export default function App() {
         }
       }
     }
-  }, [nearby, activeBuildingId, progress.chapterMastery, showToast]);
+  }, [nearby, activeBuildingId, isSpectator, progress.chapterMastery, showToast]);
 
-  // Keyboard shortcut E / Enter for contextual interaction
   useEffect(() => {
     if (!enteredCity) return;
     const onKey = (e: KeyboardEvent) => {
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (stationModal || versusModalOpen || avatarStudioOpen || onlineModalOpen || sheetGuruOpen) return;
+      if (
+        stationModal ||
+        versusModalOpen ||
+        avatarStudioOpen ||
+        onlineModalOpen ||
+        sheetGuruOpen ||
+        adminModalOpen ||
+        adminAuthPromptOpen
+      ) {
+        return;
+      }
       if (e.code === 'KeyE' || e.code === 'Enter') {
-        if (nearby) {
+        if (nearby && !isSpectator) {
           e.preventDefault();
           triggerNearbyAction();
         }
@@ -740,11 +903,14 @@ export default function App() {
   }, [
     enteredCity,
     nearby,
+    isSpectator,
     stationModal,
     versusModalOpen,
     avatarStudioOpen,
     onlineModalOpen,
     sheetGuruOpen,
+    adminModalOpen,
+    adminAuthPromptOpen,
     triggerNearbyAction
   ]);
 
@@ -876,6 +1042,47 @@ export default function App() {
     setPendingInvite(null);
   };
 
+  const handleOpenAdminFromHud = () => {
+    sound.click();
+    if (userRole === 'admin' && adminPass) {
+      setAdminModalOpen(true);
+    } else {
+      setAdminPassError(null);
+      setAdminPassInput('');
+      setAdminAuthPromptOpen(true);
+    }
+  };
+
+  const handleBroadcastFreeze = (freeze: boolean) => {
+    setAdminFrozenAll(freeze);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'admin_broadcast',
+          adminPass,
+          action: 'freeze',
+          frozen: freeze
+        })
+      );
+    }
+  };
+
+  const handleBroadcastAnnouncement = (text: string, speak: boolean) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'admin_broadcast',
+          adminPass,
+          action: 'announcement',
+          message: text,
+          speak
+        })
+      );
+    }
+    setAdminAnnouncement(text);
+    if (speak) voice.speak(`Pengumuman dari Guru: ${text}`, true);
+  };
+
   const activeWeatherIcon = useMemo(() => {
     if (resolvedWeather === 'Hujan') return <CloudRain className="w-4 h-4 text-sky-400" />;
     if (resolvedWeather === 'Badai') return <CloudLightning className="w-4 h-4 text-amber-300" />;
@@ -886,6 +1093,11 @@ export default function App() {
     return <Sun className="w-4 h-4 text-amber-400" />;
   }, [resolvedWeather, resolvedTime]);
 
+  const nonSpectatorPlayers = useMemo(
+    () => onlinePlayers.filter((p) => !p.isSpectator),
+    [onlinePlayers]
+  );
+
   if (!enteredCity) {
     return (
       <LoginScreen
@@ -894,6 +1106,8 @@ export default function App() {
         googleError={googleError}
         onGoogleLogin={handleGoogleLogin}
         onGuestEnter={handleGuestEnter}
+        onEnterSpectator={handleEnterSpectator}
+        onEnterAdminGuru={handleEnterAdminFromLogin}
       />
     );
   }
@@ -924,11 +1138,12 @@ export default function App() {
           <div className="fixed top-3 left-3 z-30 flex items-start gap-2.5 max-w-[calc(100vw-160px)]">
             <MinimapRadar
               playerPos={playerPos}
-              onlinePlayers={onlinePlayers}
+              onlinePlayers={nonSpectatorPlayers}
               completedQuestions={progress.completedQuestions}
               activeBuildingId={activeBuildingId}
               onTeleportBuilding={(bId) => {
                 sound.pop();
+                setSpectatorFollowId(null);
                 engineRef.current?.teleportToBuilding(bId);
                 const def = CITY_BUILDINGS.find((b) => b.id === bId);
                 if (def) showToast(`Teleport ke depan ${def.title}`);
@@ -941,7 +1156,7 @@ export default function App() {
                   {identity.name}
                 </span>
                 <span className="px-1.5 py-0.5 rounded bg-blue-600 text-[10px] font-black font-mono-num">
-                  Lv.{progress.level}
+                  {isSpectator ? 'SPECTATOR' : userRole === 'admin' ? 'ADMIN' : `Lv.${progress.level}`}
                 </span>
               </div>
               <div className="text-[11px] text-slate-300 font-semibold truncate max-w-[210px]">
@@ -994,35 +1209,72 @@ export default function App() {
                 className="min-h-[40px] px-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 border border-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
               >
                 <Users className="w-3.5 h-3.5" />
-                <span>Online ({onlinePlayers.length})</span>
+                <span>Online ({nonSpectatorPlayers.length})</span>
               </button>
 
               {/* Direct Versus Lobby Button */}
+              {!isSpectator && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setActiveDuel(null);
+                    setVersusModalOpen(true);
+                  }}
+                  className="min-h-[40px] px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+                >
+                  <Swords className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Versus 1v1</span>
+                </button>
+              )}
+
+              {/* Spectator Mode Toggle Button */}
               <button
                 type="button"
                 onClick={() => {
-                  sound.click();
-                  setActiveDuel(null);
-                  setVersusModalOpen(true);
+                  sound.pop();
+                  setSpectatorFollowId(null);
+                  setIsSpectator((s) => !s);
                 }}
-                className="min-h-[40px] px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+                className={`min-h-[40px] px-3 rounded-xl border font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer ${
+                  isSpectator
+                    ? 'bg-sky-600 border-sky-400 text-white'
+                    : 'bg-slate-900/92 border-slate-700 text-white'
+                }`}
+                title="Mode Spectator Kamera Bebas"
               >
-                <Swords className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Versus 1v1</span>
+                <Eye className="w-3.5 h-3.5 text-sky-300" />
+                <span className="hidden sm:inline">{isSpectator ? 'Spectator ON' : 'Spectator'}</span>
+              </button>
+
+              {/* Admin Guru Button */}
+              <button
+                type="button"
+                onClick={handleOpenAdminFromHud}
+                className={`min-h-[40px] px-3 rounded-xl border font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer ${
+                  userRole === 'admin'
+                    ? 'bg-amber-400 border-amber-300 text-slate-950'
+                    : 'bg-slate-900/92 border-slate-700 text-white'
+                }`}
+              >
+                <Shield className={`w-3.5 h-3.5 ${userRole === 'admin' ? 'text-slate-950' : 'text-amber-400'}`} />
+                <span className="hidden sm:inline">Admin Guru</span>
               </button>
 
               {/* Avatar Studio Button */}
-              <button
-                type="button"
-                onClick={() => {
-                  sound.click();
-                  setAvatarStudioOpen(true);
-                }}
-                className="min-h-[40px] px-3 rounded-xl bg-slate-900/92 border border-slate-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
-              >
-                <Palette className="w-3.5 h-3.5 text-sky-400" />
-                <span className="hidden sm:inline">Avatar</span>
-              </button>
+              {!isSpectator && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setAvatarStudioOpen(true);
+                  }}
+                  className="min-h-[40px] px-3 rounded-xl bg-slate-900/92 border border-slate-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
+                >
+                  <Palette className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="hidden md:inline">Avatar</span>
+                </button>
+              )}
 
               {/* Sheet Guru Button */}
               <button
@@ -1034,11 +1286,11 @@ export default function App() {
                 className="min-h-[40px] px-3 rounded-xl bg-slate-900/92 border border-slate-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Sheet Guru</span>
+                <span className="hidden md:inline">Sheet Guru</span>
               </button>
             </div>
 
-            {/* Compact Secondary Row (Audio + Touch Joystick Toggle on IFP/Desktop + Logout) */}
+            {/* Compact Secondary Row */}
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
@@ -1154,7 +1406,60 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* Spectator Floating Control Bar (Top-Center when in Spectator mode) */}
+          {isSpectator && (
+            <div className="fixed top-20 left-1/2 -translate-x-1/2 z-30 rounded-2xl bg-slate-900/95 border-2 border-sky-400 px-4 py-2.5 text-white shadow-2xl flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5 text-xs font-black text-sky-300">
+                <Eye className="w-4 h-4" />
+                <span>MODE SPECTATOR</span>
+              </div>
+              <select
+                value={spectatorFollowId || ''}
+                onChange={(e) => {
+                  const val = e.target.value || null;
+                  setSpectatorFollowId(val);
+                  engineRef.current?.setSpectatorFollow(val);
+                }}
+                className="rounded-lg bg-slate-800 border border-slate-600 px-2.5 py-1 text-xs font-bold text-white"
+              >
+                <option value="">Terbang Bebas (Kamera Kota)</option>
+                {nonSpectatorPlayers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    Ikuti: {p.name} (Kelas {p.className})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  sound.click();
+                  setIsSpectator(false);
+                  setSpectatorFollowId(null);
+                }}
+                className="px-3 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs cursor-pointer"
+              >
+                Keluar Spectator
+              </button>
+            </div>
+          )}
         </>
+      )}
+
+      {/* Teacher Live Announcement Banner */}
+      {adminAnnouncement && (
+        <div className="fixed top-32 left-1/2 -translate-x-1/2 z-40 w-[92vw] max-w-xl rounded-2xl bg-amber-400 border-2 border-slate-900 px-4 py-3 text-slate-950 shadow-2xl flex items-center justify-between gap-3">
+          <div className="text-xs sm:text-sm font-black">
+            Pengumuman Guru: <span className="font-bold">{adminAnnouncement}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAdminAnnouncement(null)}
+            className="px-2.5 py-1 rounded-lg bg-slate-900 text-white text-xs font-bold cursor-pointer shrink-0"
+          >
+            Tutup
+          </button>
+        </div>
       )}
 
       {/* CENTER-TOP TOAST & DUEL INVITE BANNER */}
@@ -1193,7 +1498,7 @@ export default function App() {
         </div>
       )}
 
-      {/* BOTTOM-LEFT HUD: Analog Touch Joystick (Always visible on mobile/tablet OR when toggled on IFP desktop) */}
+      {/* BOTTOM-LEFT HUD: Analog Touch Joystick */}
       <div className={`fixed bottom-4 left-4 z-30 ${showDesktopJoystick ? 'block' : 'lg:hidden'}`}>
         <TouchJoystick
           onVectorChange={(x, y) => engineRef.current?.setJoystickVector(x, y)}
@@ -1208,54 +1513,60 @@ export default function App() {
         />
       </div>
 
-      {/* Desktop Controls Hint Pill (bottom-left on lg+ when joystick hidden) */}
+      {/* Desktop Controls Hint Pill */}
       {!showDesktopJoystick && !mobileFullscreen && (
         <div className="hidden lg:flex fixed bottom-4 left-4 z-30 items-center gap-2 rounded-xl bg-slate-900/90 border border-slate-700 px-3.5 py-2 text-xs text-slate-200 font-semibold shadow-lg pointer-events-none">
-          <span>WASD / Panah: Jalan</span>
+          <span>WASD / Panah: {isSpectator ? 'Terbang Kamera' : 'Jalan'}</span>
           <span className="text-slate-500">·</span>
-          <span>Shift: Lari</span>
+          <span>Shift: {isSpectator ? 'Cepat' : 'Lari'}</span>
           <span className="text-slate-500">·</span>
           <span>Seret Mouse: Putar Kamera 360°</span>
-          <span className="text-slate-500">·</span>
-          <span>E / Enter: Masuk & Interaksi</span>
+          {!isSpectator && (
+            <>
+              <span className="text-slate-500">·</span>
+              <span>E / Enter: Masuk & Interaksi</span>
+            </>
+          )}
         </div>
       )}
 
       {/* BOTTOM-RIGHT HUD: Contextual Action Button + Quick Exit Inside Building */}
-      <div className="fixed bottom-4 right-4 z-30 flex flex-col items-end gap-2">
-        {activeBuildingId && !nearby && (
-          <button
-            type="button"
-            onClick={() => {
-              sound.pop();
-              engineRef.current?.exitBuilding();
-            }}
-            className="min-h-[48px] px-4 rounded-2xl bg-slate-900/92 border-2 border-white/25 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xl cursor-pointer"
-          >
-            <DoorOpen className="w-4 h-4 text-amber-400" />
-            <span>Keluar ke Kota 3D</span>
-          </button>
-        )}
+      {!isSpectator && (
+        <div className="fixed bottom-4 right-4 z-30 flex flex-col items-end gap-2">
+          {activeBuildingId && !nearby && (
+            <button
+              type="button"
+              onClick={() => {
+                sound.pop();
+                engineRef.current?.exitBuilding();
+              }}
+              className="min-h-[48px] px-4 rounded-2xl bg-slate-900/92 border-2 border-white/25 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xl cursor-pointer"
+            >
+              <DoorOpen className="w-4 h-4 text-amber-400" />
+              <span>Keluar ke Kota 3D</span>
+            </button>
+          )}
 
-        {nearby && (
-          <button
-            type="button"
-            onClick={triggerNearbyAction}
-            className="min-h-[54px] px-5 rounded-2xl bg-amber-400 hover:bg-amber-300 border-2 border-white text-slate-950 font-display font-black text-sm sm:text-base flex items-center gap-2 shadow-2xl cursor-pointer active:scale-95 transition-transform"
-          >
-            <span>
-              {nearby.kind === 'building'
-                ? nearby.building.isVersus
-                  ? 'Masuk Arena Duel 1v1'
-                  : `Masuk ${nearby.building.shortTitle}`
-                : nearby.label}
-            </span>
-            <span className="hidden sm:inline px-2 py-0.5 rounded bg-slate-950/15 text-xs font-mono-num">
-              E
-            </span>
-          </button>
-        )}
-      </div>
+          {nearby && (
+            <button
+              type="button"
+              onClick={triggerNearbyAction}
+              className="min-h-[54px] px-5 rounded-2xl bg-amber-400 hover:bg-amber-300 border-2 border-white text-slate-950 font-display font-black text-sm sm:text-base flex items-center gap-2 shadow-2xl cursor-pointer active:scale-95 transition-transform"
+            >
+              <span>
+                {nearby.kind === 'building'
+                  ? nearby.building.isVersus
+                    ? 'Masuk Arena Duel 1v1'
+                    : `Masuk ${nearby.building.shortTitle}`
+                  : nearby.label}
+              </span>
+              <span className="hidden sm:inline px-2 py-0.5 rounded bg-slate-950/15 text-xs font-mono-num">
+                E
+              </span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* MODALS */}
       {stationModal && (
@@ -1274,7 +1585,7 @@ export default function App() {
       {versusModalOpen && (
         <VersusModal
           identity={identity}
-          onlinePlayers={onlinePlayers}
+          onlinePlayers={nonSpectatorPlayers}
           activeDuel={activeDuel}
           onStartBotDuel={() => {
             setActiveDuel({
@@ -1336,7 +1647,7 @@ export default function App() {
 
       {onlineModalOpen && (
         <OnlinePlayersModal
-          players={onlinePlayers}
+          players={nonSpectatorPlayers}
           myPos={playerPos}
           onVisitPlayer={(p) => {
             setOnlineModalOpen(false);
@@ -1364,6 +1675,117 @@ export default function App() {
           }}
           onClose={() => setSheetGuruOpen(false)}
         />
+      )}
+
+      {adminModalOpen && (
+        <AdminGuruModal
+          adminPass={adminPass}
+          onlinePlayers={onlinePlayers}
+          isSpectator={isSpectator}
+          frozenAll={adminFrozenAll}
+          onToggleSpectator={() => setIsSpectator((s) => !s)}
+          onSpectatePlayer={(pid) => {
+            setIsSpectator(true);
+            setSpectatorFollowId(pid);
+            engineRef.current?.setSpectatorMode(true, pid);
+            showToast('Memantau aktivitas siswa dalam Mode Spectator 3D');
+          }}
+          onBroadcastFreeze={handleBroadcastFreeze}
+          onBroadcastAnnouncement={handleBroadcastAnnouncement}
+          onOpenSheetGuru={() => setSheetGuruOpen(true)}
+          onOpenTeacherPanel={() => setTeacherPanelOpen(true)}
+          onClose={() => setAdminModalOpen(false)}
+        />
+      )}
+
+      {teacherPanelOpen && (
+        <TeacherPanel
+          question={TKA_QUESTIONS[0]}
+          frozen={localFrozen}
+          onToggleFreeze={() => setLocalFrozen((f) => !f)}
+          onClose={() => setTeacherPanelOpen(false)}
+        />
+      )}
+
+      {/* Teacher Admin Password Modal inside City */}
+      {adminAuthPromptOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/78 flex items-center justify-center p-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const res = await verifyAdminPassword(adminPassInput);
+              if (!res.ok) {
+                sound.softWrong();
+                setAdminPassError(res.message || 'Sandi Admin Guru salah.');
+              } else {
+                sound.clap();
+                setUserRole('admin');
+                setAdminAuthPromptOpen(false);
+                setAdminModalOpen(true);
+              }
+            }}
+            className="w-full max-w-md rounded-3xl bg-white text-slate-900 p-6 shadow-2xl border border-slate-200 space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-display text-lg font-black">Verifikasi Admin Guru</h3>
+                <p className="text-xs text-slate-500">Masukkan sandi guru untuk membuka panel kendali.</p>
+              </div>
+            </div>
+            <input
+              type="password"
+              autoFocus
+              value={adminPassInput}
+              onChange={(e) => setAdminPassInput(e.target.value)}
+              placeholder="Sandi guru..."
+              className="w-full min-h-[44px] px-3.5 rounded-xl border border-slate-300 text-sm font-semibold"
+            />
+            {adminPassError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-xs font-bold text-rose-800">
+                {adminPassError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAdminAuthPromptOpen(false)}
+                className="min-h-[40px] px-4 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="min-h-[40px] px-5 rounded-xl bg-slate-900 text-white font-bold text-xs cursor-pointer"
+              >
+                Buka Panel Guru
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Student Screen Frozen Overlay (triggered by Teacher Admin or Local TeacherPanel) */}
+      {(globalFrozenByAdmin || localFrozen) && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/92 flex flex-col items-center justify-center p-6 text-center text-white">
+          <div className="max-w-lg space-y-4">
+            <h2 className="font-display text-3xl font-black text-amber-300">Layar Dibekukan oleh Guru</h2>
+            <p className="text-base sm:text-lg text-slate-200">
+              Ayo perhatikan penjelasan Guru di depan kelas dan berdiskusi bersama temanmu dulu!
+            </p>
+            {localFrozen && !globalFrozenByAdmin && (
+              <button
+                type="button"
+                onClick={() => setLocalFrozen(false)}
+                className="min-h-[48px] px-6 rounded-xl bg-amber-400 text-slate-950 font-black text-sm cursor-pointer"
+              >
+                Lanjutkan Layar
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

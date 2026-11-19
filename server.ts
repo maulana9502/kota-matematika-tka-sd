@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 
 const PORT = Number(process.env.PORT) || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
+const TEACHER_ADMIN_PASSWORD = process.env.TEACHER_ADMIN_PASSWORD || 'smpbhy07#123';
 
 // Data persistence folder (safe local JSON backup alongside Firestore)
 const DATA_DIR = path.resolve(process.cwd(), '.kota-data');
@@ -92,6 +93,7 @@ export interface OnlinePlayerState {
   level: number;
   completedCount: number;
   insideBuildingId: string;
+  isSpectator?: boolean;
   lastSeen: number;
 }
 
@@ -228,6 +230,7 @@ async function startServer() {
       level: Number(body.level ?? 1),
       completedCount: Number(body.completedCount ?? 0),
       insideBuildingId: String(body.insideBuildingId || ''),
+      isSpectator: Boolean(body.isSpectator),
       lastSeen: Date.now()
     };
     onlinePlayers.set(updated.id, updated);
@@ -294,6 +297,29 @@ async function startServer() {
     res.json({ ok: true, entry });
   });
 
+  // 5. Teacher Admin Auth & Class Overview API
+  app.post('/api/admin/verify', (req, res) => {
+    const pass = String((req.body as { password?: string })?.password || '');
+    if (pass === TEACHER_ADMIN_PASSWORD) {
+      res.json({ ok: true });
+      return;
+    }
+    res.status(401).json({ ok: false, message: 'Sandi Admin Guru tidak cocok.' });
+  });
+
+  app.get('/api/admin/overview', (req, res) => {
+    const pass = String(req.headers['x-admin-pass'] || '');
+    if (pass !== TEACHER_ADMIN_PASSWORD) {
+      res.status(403).json({ error: 'Akses Admin Guru ditolak' });
+      return;
+    }
+    res.json({
+      players: getPrunedPlayers(),
+      progressList: Array.from(progressStore.values()),
+      archiveCount: archiveStore.length
+    });
+  });
+
   // Mount Vite Dev Middleware OR Static Dist
   if (!IS_PROD) {
     const { createServer: createViteServer } = await import('vite');
@@ -346,6 +372,7 @@ async function startServer() {
             level: Number(p.level ?? 1),
             completedCount: Number(p.completedCount ?? 0),
             insideBuildingId: String(p.insideBuildingId || ''),
+            isSpectator: Boolean(p.isSpectator),
             lastSeen: Date.now()
           };
           onlinePlayers.set(playerId, fullPlayer);
@@ -391,6 +418,7 @@ async function startServer() {
           if (p.companion) existing.companion = String(p.companion);
           if (typeof p.level === 'number') existing.level = p.level;
           if (typeof p.completedCount === 'number') existing.completedCount = p.completedCount;
+          if (typeof p.isSpectator === 'boolean') existing.isSpectator = p.isSpectator;
           existing.lastSeen = Date.now();
           broadcast({ type: 'player_updated', player: existing }, playerId);
         } else if (data.type === 'versus_challenge' && playerId) {
@@ -478,6 +506,20 @@ async function startServer() {
             }
             duelRooms.delete(roomId);
           }
+        } else if (data.type === 'admin_broadcast' && playerId) {
+          if (String(data.adminPass || '') !== TEACHER_ADMIN_PASSWORD) return;
+          broadcast(
+            {
+              type: 'admin_event',
+              action: String(data.action || ''),
+              frozen: Boolean(data.frozen),
+              message: String(data.message || ''),
+              speak: Boolean(data.speak),
+              timeMode: data.timeMode ? String(data.timeMode) : undefined,
+              weatherMode: data.weatherMode ? String(data.weatherMode) : undefined
+            },
+            playerId
+          );
         } else if (data.type === 'ping') {
           if (playerId) {
             const p = onlinePlayers.get(playerId);

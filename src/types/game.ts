@@ -41,6 +41,8 @@ export interface PlayerProgress {
   level: number;
 }
 
+export type UserRole = 'student' | 'spectator' | 'admin';
+
 export interface OnlinePlayer {
   id: string;
   name: string;
@@ -59,6 +61,7 @@ export interface OnlinePlayer {
   level: number;
   completedCount: number;
   insideBuildingId: string;
+  isSpectator?: boolean;
 }
 
 export interface BuildingDef {

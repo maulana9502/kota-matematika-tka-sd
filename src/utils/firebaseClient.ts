@@ -118,19 +118,62 @@ export async function testFirestoreConnection(): Promise<boolean> {
   }
 }
 
-export async function signInWithGoogleWorkspace(): Promise<{
+export async function signInWithGoogleBasic(): Promise<{
   user: User;
   accessToken: string | null;
 }> {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedGoogleAccessToken = credential.accessToken;
+    }
+    return { user: result.user, accessToken: cachedGoogleAccessToken };
+  } catch (err) {
+    const code = (err as { code?: string })?.code || '';
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      code === 'auth/popup-closed-by-user' ||
+      code === 'auth/cancelled-popup-request'
+    ) {
+      throw new Error('Jendela login Google ditutup sebelum selesai. Silakan coba lagi.');
+    }
+    if (
+      msg.includes('access_denied') ||
+      msg.includes('blocked') ||
+      code === 'auth/unauthorized-domain'
+    ) {
+      throw new Error(
+        'Akses akun Google dibatasi oleh layar izin Google Cloud (mode Testing). Gunakan tombol "Masuk Langsung" di bawah agar progres tetap tersimpan di server, atau minta Admin mengubah OAuth Consent Screen ke "In Production" di Google Cloud Console.'
+      );
+    }
+    throw err;
+  }
+}
+
+export async function authorizeGoogleWorkspaceScopes(): Promise<string | null> {
   const provider = new GoogleAuthProvider();
   for (const scope of WORKSPACE_SCOPES) {
     provider.addScope(scope);
   }
   provider.setCustomParameters({ prompt: 'consent select_account' });
-  const result = await signInWithPopup(auth, provider);
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  cachedGoogleAccessToken = credential?.accessToken ?? null;
-  return { user: result.user, accessToken: cachedGoogleAccessToken };
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    cachedGoogleAccessToken = credential?.accessToken ?? null;
+    return cachedGoogleAccessToken;
+  } catch {
+    return null;
+  }
+}
+
+export async function signInWithGoogleWorkspace(): Promise<{
+  user: User;
+  accessToken: string | null;
+}> {
+  return signInWithGoogleBasic();
 }
 
 export async function signOutGoogle(): Promise<void> {

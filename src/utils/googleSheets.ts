@@ -1,4 +1,4 @@
-import { getCachedGoogleAccessToken } from './firebaseClient';
+import { authorizeGoogleWorkspaceScopes, getCachedGoogleAccessToken } from './firebaseClient';
 
 export const DEFAULT_TEACHER_EMAIL = 'GANTI_DENGAN_EMAIL_GURU@gmail.com';
 
@@ -108,11 +108,14 @@ export async function syncEntryToGoogleSheets(params: {
   reflectionText: string;
   teacherEmail?: string;
 }): Promise<{ ok: boolean; spreadsheetUrl?: string; message: string }> {
-  const token = getCachedGoogleAccessToken();
+  let token = getCachedGoogleAccessToken();
+  if (!token) {
+    token = await authorizeGoogleWorkspaceScopes();
+  }
   if (!token) {
     return {
       ok: false,
-      message: 'Masuk dengan Google terlebih dahulu agar bisa sinkron otomatis ke Google Drive & Google Sheets.'
+      message: 'Izin Google Drive/Sheets belum diberikan. Data tetap tersimpan di Arsip Guru (Sheet Guru).'
     };
   }
 
