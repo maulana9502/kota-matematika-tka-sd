@@ -8,11 +8,13 @@ import {
 } from '../../data/tkaData';
 import {
   BuildingDef,
+  BuildingId,
   ChapterId,
   INTERIOR_TROPHY_MILESTONES,
   PlayerIdentity,
   PlayerProgress,
-  StationId
+  StationId,
+  UserRole
 } from '../../types/game';
 import { formatAngkaID, sound, voice } from '../../utils/sound';
 import { syncEntryToGoogleSheets, DEFAULT_TEACHER_EMAIL } from '../../utils/googleSheets';
@@ -67,6 +69,7 @@ interface BuildingStationModalProps {
   identity: PlayerIdentity;
   progress: PlayerProgress;
   teacherEmail: string;
+  userRole: UserRole;
   onCompleteQuestion: (qid: number, chapterId: ChapterId, isContoh: boolean) => void;
   onSubmitArchive: (payload: {
     chapterId: ChapterId;
@@ -77,6 +80,7 @@ interface BuildingStationModalProps {
     syncedToSheet: boolean;
   }) => Promise<void>;
   onClose: () => void;
+  onTriggerBan?: (buildingId: BuildingId, offenseCount: number, durationMs: number) => void;
 }
 
 type ClassroomMode = 'maju-satu' | 'berdua' | 'tim' | 'guru';
@@ -92,9 +96,11 @@ export const BuildingStationModal: React.FC<BuildingStationModalProps> = ({
   identity,
   progress,
   teacherEmail,
+  userRole,
   onCompleteQuestion,
   onSubmitArchive,
-  onClose
+  onClose,
+  onTriggerBan
 }) => {
   const [station, setStation] = useState<StationId>(
     initialStation === 'keluar' ? 'soal' : initialStation
@@ -113,8 +119,47 @@ export const BuildingStationModal: React.FC<BuildingStationModalProps> = ({
   const [topicFilter, setTopicFilter] = useState<'Semua' | QuestionTopic>('Semua');
   const [activeId, setActiveId] = useState<number>(chapterQuestions[0]?.id || 1);
   const [stage, setStage] = useState<number>(0);
+
+  // Anti-cheating visibility change listener (kicked & banned 3m -> 5m -> 7m -> max 10m)
+  React.useEffect(() => {
+    if (userRole === 'admin') return;
+    const handleVisibilityChange = () => {
+      if (document.hidden && station === 'soal' && stage === 4) {
+        const banKey = `kota3d_bans_${identity.uid}_${building.id}`;
+        let offenseCount = 1;
+        try {
+          const raw = localStorage.getItem(banKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            offenseCount = (parsed.offenseCount || 0) + 1;
+          }
+        } catch {
+          // ignore
+        }
+
+        const durationMinutes = offenseCount === 1 ? 3 : offenseCount === 2 ? 5 : offenseCount === 3 ? 7 : 10;
+        const durationMs = durationMinutes * 60 * 1000;
+        const bannedUntil = Date.now() + durationMs;
+
+        try {
+          localStorage.setItem(banKey, JSON.stringify({ offenseCount, bannedUntil }));
+        } catch {
+          // ignore
+        }
+
+        sound.softWrong();
+        if (onTriggerBan) {
+          onTriggerBan(building.id, offenseCount, durationMs);
+        }
+        onClose();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [station, stage, identity.uid, building.id, userRole, onTriggerBan, onClose]);
   const [langkahAktif, setLangkahAktif] = useState<number>(0);
-  const [faseKelas, setFaseKelas] = useState<FaseKelas>('contoh-guru');
+  const [faseKelas, setFaseKelas] = useState<FaseKelas>(userRole === 'student' ? 'giliran-siswa' : 'contoh-guru');
   const [formatSiswa, setFormatSiswa] = useState<FormatSiswa>('individu');
   const [absenMaju, setAbsenMaju] = useState<number>(() => Math.floor(Math.random() * TOTAL_ABSEN_KELAS) + 1);
   const [kelompokMaju, setKelompokMaju] = useState<number>(1);
@@ -462,58 +507,62 @@ export const BuildingStationModal: React.FC<BuildingStationModalProps> = ({
             </h2>
           </div>
 
-          {/* Station Switcher Tabs */}
+          {/* Station Switcher Tabs (Only for Admin / Teacher) */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                sound.click();
-                setStation('materi');
-              }}
-              className={`min-h-[40px] px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
-                station === 'materi' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-              }`}
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>1. Layar Materi</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                sound.click();
-                setStation('soal');
-              }}
-              className={`min-h-[40px] px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
-                station === 'soal' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-              }`}
-            >
-              <ClipboardCheck className="w-3.5 h-3.5" />
-              <span>2. Meja Soal & Refleksi ({chapterQuestions.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                sound.click();
-                setStation('sheet');
-              }}
-              className={`min-h-[40px] px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
-                station === 'sheet' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-              }`}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>3. Kirim Google Sheet</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                sound.click();
-                setTeacherOpen(true);
-              }}
-              className="min-h-[40px] px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <GraduationCap className="w-3.5 h-3.5" />
-              <span>Mode Guru</span>
-            </button>
+            {userRole === 'admin' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setStation('materi');
+                  }}
+                  className={`min-h-[40px] px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                    station === 'materi' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  }`}
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>1. Layar Materi</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setStation('soal');
+                  }}
+                  className={`min-h-[40px] px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                    station === 'soal' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  }`}
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  <span>2. Meja Soal & Refleksi ({chapterQuestions.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setStation('sheet');
+                  }}
+                  className={`min-h-[40px] px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                    station === 'sheet' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  }`}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>3. Kirim Google Sheet</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setTeacherOpen(true);
+                  }}
+                  className="min-h-[40px] px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <GraduationCap className="w-3.5 h-3.5" />
+                  <span>Mode Guru</span>
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -521,10 +570,10 @@ export const BuildingStationModal: React.FC<BuildingStationModalProps> = ({
                 voice.stop();
                 onClose();
               }}
-              className="min-h-[40px] px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+              className="min-h-[40px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-sm"
             >
               <X className="w-4 h-4" />
-              <span>Tutup</span>
+              <span>Selesai & Keluar Gedung</span>
             </button>
           </div>
         </div>

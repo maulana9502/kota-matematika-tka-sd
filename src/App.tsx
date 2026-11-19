@@ -967,6 +967,25 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enteredCity, onlineId]);
 
+  const checkBuildingBan = useCallback((bId: BuildingId): boolean => {
+    try {
+      const raw = localStorage.getItem(`kota3d_bans_${identity.uid}_${bId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.bannedUntil > Date.now()) {
+          const remainingSec = Math.ceil((parsed.bannedUntil - Date.now()) / 1000);
+          const mins = Math.floor(remainingSec / 60);
+          const secs = remainingSec % 60;
+          showToast(`Gedung terkunci sementara karena sanksi kecurangan (pindah tab)! Sisa ban: ${mins}m ${secs}s (Pelanggaran ke-${parsed.offenseCount}). Anda masih bisa mengerjakan di gedung lain.`);
+          return true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }, [identity.uid, showToast]);
+
   const triggerNearbyAction = useCallback(() => {
     if (!nearby || !engineRef.current || isSpectator) return;
     sound.unlock();
@@ -977,6 +996,9 @@ export default function App() {
         setActiveDuel(null);
         setVersusModalOpen(true);
       } else {
+        if (userRole === 'student' && checkBuildingBan(b.id)) {
+          return;
+        }
         const cid = b.id as ChapterId;
         engineRef.current.enterBuilding(b.id, progress.chapterMastery[cid] || 0);
         showToast(`Masuk ke ${b.title}! Jalan ke 4 meja di dalam ruangan.`);
@@ -991,7 +1013,7 @@ export default function App() {
         }
       }
     }
-  }, [nearby, activeBuildingId, isSpectator, progress.chapterMastery, showToast]);
+  }, [nearby, activeBuildingId, isSpectator, progress.chapterMastery, showToast, userRole, checkBuildingBan]);
 
   useEffect(() => {
     if (!enteredCity) return;
@@ -1778,9 +1800,14 @@ export default function App() {
           identity={identity}
           progress={progress}
           teacherEmail={teacherEmail}
+          userRole={userRole}
           onCompleteQuestion={handleCompleteQuestion}
           onSubmitArchive={handleSubmitArchive}
           onClose={() => setStationModal(null)}
+          onTriggerBan={(bId, offenseCount, durationMs) => {
+            const mins = Math.ceil(durationMs / 60000);
+            showToast(`Peringatan Kecurangan! Terdeteksi pindah tab saat mengerjakan. Anda dikick dari gedung ini dan dikenakan sanksi tidak boleh masuk selama ${mins} menit (Pelanggaran ke-${offenseCount}). Anda masih bisa mengerjakan di gedung lain!`);
+          }}
         />
       )}
 
